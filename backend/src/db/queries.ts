@@ -105,7 +105,7 @@ export function appendConversation(id: string, role: string, content: string): v
  */
 export function cleanupExpiredSessions(ttlMs = 7 * 24 * 60 * 60 * 1000): number {
   const db = getDb();
-  const cutoff = new Date(Date.now() - ttlMs).toISOString();
+  const cutoff = new Date(Date.now() - ttlMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
   const result = db.prepare('DELETE FROM sessions WHERE updated_at < ?').run(cutoff);
   return result.changes;
 }

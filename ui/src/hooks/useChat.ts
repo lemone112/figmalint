@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { ChatMessage, ChatMessageType, LintResult, LintError, ScoreBreakdown, CategoryScore, ScoreGrade, AiReviewData, ReferoComparisonData } from '../lib/messages';
+import type { ChatMessage, ChatMessageType, LintResult, LintError, ScoreBreakdown, CategoryScore, ScoreGrade, AiReviewData, ReferoComparisonData, DiffResultData, BaselineMetaData } from '../lib/messages';
 
 let messageIdCounter = 0;
 function nextId(): string {
@@ -111,6 +111,8 @@ export interface ChatState {
   sessionId: string | null;
   aiReview: AiReviewData | null;
   isStreaming: boolean;
+  baselineMeta: BaselineMetaData | null;
+  lastDiff: DiffResultData | null;
 }
 
 export function useChat() {
@@ -123,6 +125,8 @@ export function useChat() {
     sessionId: null,
     aiReview: null,
     isStreaming: false,
+    baselineMeta: null,
+    lastDiff: null,
   });
 
   const addMessage = useCallback((msg: ChatMessageType) => {
@@ -395,6 +399,35 @@ export function useChat() {
     });
   }, []);
 
+  const handleBaselineSaved = useCallback((data: { nodeId: string; nodeName: string; timestamp: number; overall: number }) => {
+    setState(prev => ({
+      ...prev,
+      baselineMeta: { timestamp: data.timestamp, nodeName: data.nodeName, overall: data.overall },
+      messages: [
+        ...prev.messages,
+        createMessage({
+          kind: 'baseline-saved',
+          data,
+        }),
+      ],
+    }));
+  }, []);
+
+  const handleBaselineLoaded = useCallback((meta: BaselineMetaData | null) => {
+    setState(prev => ({ ...prev, baselineMeta: meta }));
+  }, []);
+
+  const handleDiffResult = useCallback((data: DiffResultData) => {
+    setState(prev => ({
+      ...prev,
+      lastDiff: data,
+      messages: [
+        ...prev.messages,
+        createMessage({ kind: 'diff-result', data }),
+      ],
+    }));
+  }, []);
+
   const clearMessages = useCallback(() => {
     setState({
       messages: [],
@@ -405,6 +438,8 @@ export function useChat() {
       sessionId: null,
       aiReview: null,
       isStreaming: false,
+      baselineMeta: null,
+      lastDiff: null,
     });
   }, []);
 
@@ -430,6 +465,9 @@ export function useChat() {
     finishStream,
     clearMessages,
     clearAnalysisPhase,
+    handleBaselineSaved,
+    handleBaselineLoaded,
+    handleDiffResult,
   };
 }
 

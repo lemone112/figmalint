@@ -3,7 +3,7 @@ import ChatContainer from './components/chat/ChatContainer';
 import SettingsPanel from './components/shared/SettingsPanel';
 import { useChat } from './hooks/useChat';
 import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
-import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData } from './lib/messages';
+import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData } from './lib/messages';
 import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow } from './lib/api';
 
 export default function App() {
@@ -77,6 +77,8 @@ export default function App() {
     // Clear any existing poll
     if (referoPollingRef.current) clearInterval(referoPollingRef.current);
 
+    chat.addMessage({ kind: 'analysis-phase', phase: 'refero' });
+
     let attempts = 0;
     referoPollingRef.current = setInterval(async () => {
       attempts++;
@@ -116,6 +118,7 @@ export default function App() {
               // Store lint result and request screenshot for AI analysis
               pendingLintResult.current = event.data as LintResult;
               post('export-screenshot');
+              chat.addMessage({ kind: 'analysis-phase', phase: 'screenshot' });
             }
             break;
           case 'enhanced-analysis-result': {
@@ -154,6 +157,8 @@ export default function App() {
             const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number };
             pendingScreenshot.current = ssData;
             analyzedNodeId.current = ssData.nodeId;
+            // Check for existing baseline for this node
+            post('load-baseline', { nodeId: ssData.nodeId });
             // If we have both lint result and screenshot, trigger backend analysis
             if (pendingLintResult.current && pendingScreenshot.current) {
               tryBackendAnalysis(pendingLintResult.current, pendingScreenshot.current);
@@ -223,6 +228,21 @@ export default function App() {
               chat.addMessage({ kind: 'ai-text', content: 'API key saved successfully.' });
             }
             break;
+          case 'baseline-saved':
+            chat.handleBaselineSaved(event.data as { nodeId: string; nodeName: string; timestamp: number; overall: number });
+            break;
+          case 'baseline-loaded':
+            chat.handleBaselineLoaded(event.data as { timestamp: number; nodeName: string; overall: number } | null);
+            break;
+          case 'diff-result': {
+            const diffData = event.data as DiffResultData | null;
+            if (diffData) {
+              chat.handleDiffResult(diffData);
+            } else {
+              chat.addMessage({ kind: 'ai-text', content: 'No baseline found for this component. Save a baseline first.' });
+            }
+            break;
+          }
           case 'selection-changed': {
             const selData = event.data as { hasSelection: boolean; nodeId: string | null; nodeName: string | null };
             setCurrentNodeName(selData.nodeName);
@@ -265,6 +285,7 @@ export default function App() {
       referoPollingRef.current = null;
     }
     chat.startAnalysis();
+    chat.addMessage({ kind: 'analysis-phase', phase: 'lint' });
     walkthroughIndex.current = 0;
     setSelectionStale(false);
     post('run-design-lint');
@@ -422,7 +443,7 @@ export default function App() {
         case 'export': {
           const result = chat.lintResult;
           if (result) {
-            const md = buildFullReport(result, componentName, chat.issuesFixed, chat.aiReview);
+            const md = buildFullReport(result, componentName, chat.issuesFixed, chat.aiReview, chat.lastDiff);
             navigator.clipboard.writeText(md).then(
               () => {
                 chat.addMessage({
@@ -453,12 +474,80 @@ export default function App() {
                 issuesFixed: chat.issuesFixed,
               },
               aiReview: chat.aiReview || undefined,
+              diff: chat.lastDiff || undefined,
             };
             navigator.clipboard.writeText(JSON.stringify(report, null, 2)).then(
               () => chat.addMessage({ kind: 'ai-text', content: 'JSON report copied to clipboard!' }),
               () => chat.addMessage({ kind: 'ai-text', content: 'Failed to copy JSON to clipboard.' }),
             );
           }
+          break;
+        }
+
+        case 'save-baseline': {
+          if (!chat.score || !chat.lintResult) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first before saving a baseline.' });
+            break;
+          }
+          const nodeId = analyzedNodeId.current;
+          if (!nodeId) break;
+          post('save-baseline', {
+            nodeId,
+            nodeName: componentName || 'Component',
+            overall: chat.score.overall,
+            grade: chat.score.grade,
+            categories: {
+              tokens: chat.score.tokens,
+              spacing: chat.score.spacing,
+              layout: chat.score.layout,
+              accessibility: chat.score.accessibility,
+              naming: chat.score.naming,
+              visualQuality: chat.score.visualQuality,
+              microcopy: chat.score.microcopy,
+              conversion: chat.score.conversion,
+              cognitive: chat.score.cognitive,
+            },
+            errors: chat.lintResult.errors.map(e => ({
+              errorType: e.errorType,
+              severity: e.severity,
+              nodeId: e.nodeId,
+              message: e.message,
+            })),
+            summary: chat.lintResult.summary,
+          });
+          break;
+        }
+
+        case 'compare-baseline': {
+          if (!chat.score || !chat.lintResult) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first before comparing.' });
+            break;
+          }
+          const diffNodeId = analyzedNodeId.current;
+          if (!diffNodeId) break;
+          post('compare-baseline', {
+            nodeId: diffNodeId,
+            overall: chat.score.overall,
+            grade: chat.score.grade,
+            categories: {
+              tokens: chat.score.tokens,
+              spacing: chat.score.spacing,
+              layout: chat.score.layout,
+              accessibility: chat.score.accessibility,
+              naming: chat.score.naming,
+              visualQuality: chat.score.visualQuality,
+              microcopy: chat.score.microcopy,
+              conversion: chat.score.conversion,
+              cognitive: chat.score.cognitive,
+            },
+            errors: chat.lintResult.errors.map(e => ({
+              errorType: e.errorType,
+              severity: e.severity,
+              nodeId: e.nodeId,
+              message: e.message,
+            })),
+            summary: chat.lintResult.summary,
+          });
           break;
         }
 
@@ -570,6 +659,7 @@ function buildFullReport(
   componentName?: string,
   issuesFixed?: number,
   aiReview?: AiReviewData | null,
+  diff?: DiffResultData | null,
 ): string {
   const lines = [
     `# Design Review Report: ${componentName || 'Component'}`,
@@ -619,6 +709,31 @@ function buildFullReport(
 
     if (aiReview.summary) {
       lines.push('', `> ${aiReview.summary}`);
+    }
+  }
+
+  // Baseline diff section
+  if (diff) {
+    lines.push('', '## Baseline Comparison', '');
+    const delta = diff.scoreDelta.overall;
+    const arrow = delta > 0 ? '+' : '';
+    lines.push(`Score: ${diff.scoreDelta.oldOverall} → ${diff.scoreDelta.newOverall} (${arrow}${delta})`);
+    lines.push(`Baseline from: ${new Date(diff.baselineTimestamp).toLocaleString()}`);
+    lines.push('');
+
+    if (diff.summary.totalFixed > 0) lines.push(`- **Fixed:** ${diff.summary.totalFixed} issues`);
+    if (diff.summary.totalNew > 0) lines.push(`- **New:** ${diff.summary.totalNew} issues`);
+    lines.push(`- **Remaining:** ${diff.summary.totalRemaining} issues`);
+
+    // Category deltas
+    const changed = diff.scoreDelta.categories.filter(c => c.delta !== 0);
+    if (changed.length > 0) {
+      lines.push('', '| Category | Before | After | Delta |');
+      lines.push('|----------|--------|-------|-------|');
+      for (const c of changed) {
+        const d = c.delta > 0 ? `+${c.delta}` : `${c.delta}`;
+        lines.push(`| ${c.category} | ${c.oldScore} | ${c.newScore} | ${d} |`);
+      }
     }
   }
 

@@ -8,8 +8,13 @@ import type { MiddlewareHandler } from 'hono';
 export function bearerAuth(): MiddlewareHandler {
   return async (c, next) => {
     const token = process.env.BACKEND_AUTH_TOKEN;
-    // If no token configured, auth is disabled (development mode)
-    if (!token) return next();
+    // If no token configured, only allow bypass in development
+    if (!token) {
+      if (process.env.NODE_ENV === 'development' || process.env.BACKEND_AUTH_DISABLED === 'true') {
+        return next();
+      }
+      return c.json({ error: 'Server misconfiguration: BACKEND_AUTH_TOKEN is not set' }, 500);
+    }
 
     // Health endpoint is always public
     if (c.req.path === '/api/health') return next();

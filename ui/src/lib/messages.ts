@@ -115,7 +115,9 @@ export type ChatMessageType =
   | { kind: 'ai-review'; data: AiReviewData }
   | { kind: 'refero-gallery'; data: ReferoComparisonData }
   | { kind: 'analysis-phase'; phase: AnalysisPhase; done?: boolean }
-  | { kind: 'flow-result'; data: FlowAnalysisData };
+  | { kind: 'flow-result'; data: FlowAnalysisData }
+  | { kind: 'diff-result'; data: DiffResultData }
+  | { kind: 'baseline-saved'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } };
 
 export type AiRating = 'pass' | 'needs_improvement' | 'fail';
 
@@ -209,7 +211,10 @@ export type PluginEvent =
   | { type: 'screenshot-error'; data: { error: string } }
   | { type: 'flow-analysis-started'; data: { status: string; progress?: number; total?: number } }
   | { type: 'flow-analysis-result'; data: FlowAnalysisData }
-  | { type: 'flow-analysis-error'; data: { error: string } };
+  | { type: 'flow-analysis-error'; data: { error: string } }
+  | { type: 'baseline-saved'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } }
+  | { type: 'baseline-loaded'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } | null }
+  | { type: 'diff-result'; data: DiffResultData };
 
 // Flow Analysis Types
 export interface FlowGraphIssue {
@@ -273,6 +278,49 @@ export interface FlowAnalysisData {
     recommendations: Array<{ title: string; description: string; severity: string; affectedFrames: string[] }>;
     summary: string;
   };
+}
+
+// ── Baseline & Diff Types ──────────────────────────────────
+
+export interface CategoryDeltaData {
+  category: string;
+  oldScore: number;
+  newScore: number;
+  delta: number;
+}
+
+export interface IssueDiffData {
+  errorType: string;
+  severity: string;
+  nodeId: string;
+  message: string;
+}
+
+export interface DiffResultData {
+  baselineTimestamp: number;
+  currentTimestamp: number;
+  scoreDelta: {
+    overall: number;
+    oldOverall: number;
+    newOverall: number;
+    categories: CategoryDeltaData[];
+  };
+  newIssues: IssueDiffData[];
+  fixedIssues: IssueDiffData[];
+  remainingIssues: IssueDiffData[];
+  summary: {
+    totalNew: number;
+    totalFixed: number;
+    totalRemaining: number;
+    oldTotal: number;
+    newTotal: number;
+  };
+}
+
+export interface BaselineMetaData {
+  timestamp: number;
+  nodeName: string;
+  overall: number;
 }
 
 // UI → Plugin message commands

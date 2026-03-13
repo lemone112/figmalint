@@ -26,7 +26,7 @@ export default function ChatContainer({
   onJumpToNode,
   onOpenSettings,
 }: ChatContainerProps) {
-  const { messages, score, lintResult, isAnalyzing, issuesFixed } = state;
+  const { messages, score, lintResult, isAnalyzing, issuesFixed, baselineMeta, lastDiff } = state;
   const totalIssues = lintResult?.summary.totalErrors || 0;
   const hasResults = messages.length > 0;
 
@@ -49,6 +49,7 @@ export default function ChatContainer({
         score={score}
         totalIssues={totalIssues}
         issuesFixed={issuesFixed}
+        lastDiff={lastDiff}
         onOpenSettings={onOpenSettings}
       />
 
@@ -71,6 +72,7 @@ export default function ChatContainer({
             onAnalyze={onAnalyze}
             hasFixable={(lintResult?.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length || 0) > 0}
             analysisMode={analysisMode}
+            hasBaseline={!!baselineMeta}
             onAction={handleAction}
           />
         )}

@@ -34,6 +34,9 @@ import { FixRequest, FixPreviewRequest, BatchFixRequest, LintSettings } from '..
 import { exportScreenshot } from '../extract/screenshot';
 import { buildFlowGraph, analyzeFlowGraph } from '../flow/graph-builder';
 import { checkCrossScreenConsistency } from '../flow/cross-screen-checks';
+import { saveBaseline, loadBaseline, deleteBaseline, getBaselineMeta } from '../baseline/storage';
+import { computeDiff } from '../baseline/diff-engine';
+import type { BaselineSnapshot, ErrorDigest } from '../baseline/storage';
 import { fixSpacingToNearest, fixAllSpacingOnNode } from '../fix/fix-spacing';
 import { fixRadiusToNearest } from '../fix/fix-radius';
 import { renameLayerById } from '../fix/rename-layer';
@@ -205,6 +208,19 @@ export async function handleUIMessage(msg: PluginMessage): Promise<void> {
         break;
       case 'analyze-flow':
         await handleAnalyzeFlow();
+        break;
+      // Baseline & Diff handlers
+      case 'save-baseline':
+        handleSaveBaseline(data);
+        break;
+      case 'load-baseline':
+        handleLoadBaseline(data);
+        break;
+      case 'compare-baseline':
+        handleCompareBaseline(data);
+        break;
+      case 'delete-baseline':
+        handleDeleteBaseline(data);
         break;
       default:
         console.warn('Unknown message type:', type);
@@ -1536,6 +1552,100 @@ export async function initializePlugin(): Promise<void> {
   } catch (error) {
     console.error('Error initializing plugin:', error);
   }
+}
+
+// ============================================================================
+// Baseline & Diff Handler Functions
+// ============================================================================
+
+/**
+ * Save the current lint result + score as a baseline snapshot in pluginData.
+ * Expects `data` to contain the full lint result and score breakdown from the UI.
+ */
+function handleSaveBaseline(data: {
+  nodeId: string;
+  nodeName: string;
+  overall: number;
+  grade: string;
+  categories: Record<string, { score: number; passed: number; failed: number }>;
+  errors: Array<{ errorType: string; severity?: string; nodeId: string; message: string }>;
+  summary: { totalErrors: number; totalNodes: number; nodesWithErrors: number; byType: Record<string, number> };
+}): void {
+  const snapshot: BaselineSnapshot = {
+    version: 1,
+    timestamp: Date.now(),
+    nodeId: data.nodeId,
+    nodeName: data.nodeName,
+    overall: data.overall,
+    grade: data.grade,
+    categories: data.categories,
+    summary: data.summary,
+    errors: data.errors.map(e => ({
+      errorType: e.errorType,
+      severity: e.severity || 'warning',
+      nodeId: e.nodeId,
+      message: e.message,
+    })),
+  };
+
+  saveBaseline(snapshot);
+
+  sendMessageToUI('baseline-saved', {
+    nodeId: data.nodeId,
+    nodeName: data.nodeName,
+    timestamp: snapshot.timestamp,
+    overall: data.overall,
+  });
+}
+
+/**
+ * Load baseline metadata for the given nodeId.
+ */
+function handleLoadBaseline(data: { nodeId: string }): void {
+  const meta = getBaselineMeta(data.nodeId);
+  sendMessageToUI('baseline-loaded', meta);
+}
+
+/**
+ * Compare current lint results against the saved baseline.
+ */
+function handleCompareBaseline(data: {
+  nodeId: string;
+  overall: number;
+  grade: string;
+  categories: Record<string, { score: number; passed: number; failed: number }>;
+  errors: Array<{ errorType: string; severity?: string; nodeId: string; message: string }>;
+  summary: { totalErrors: number; totalNodes: number; nodesWithErrors: number; byType: Record<string, number> };
+}): void {
+  const baseline = loadBaseline(data.nodeId);
+  if (!baseline) {
+    sendMessageToUI('diff-result', null);
+    return;
+  }
+
+  const currentErrors: ErrorDigest[] = data.errors.map(e => ({
+    errorType: e.errorType,
+    severity: e.severity || 'warning',
+    nodeId: e.nodeId,
+    message: e.message,
+  }));
+
+  const diff = computeDiff(baseline, {
+    overall: data.overall,
+    grade: data.grade,
+    categories: data.categories,
+    errors: currentErrors,
+    summary: data.summary,
+  });
+
+  sendMessageToUI('diff-result', diff);
+}
+
+/**
+ * Delete the saved baseline for a given nodeId.
+ */
+function handleDeleteBaseline(data: { nodeId: string }): void {
+  deleteBaseline(data.nodeId);
 }
 
 // ============================================================================

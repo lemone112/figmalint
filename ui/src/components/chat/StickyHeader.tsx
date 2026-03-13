@@ -1,10 +1,11 @@
-import type { ScoreBreakdown } from '../../lib/messages';
+import type { ScoreBreakdown, DiffResultData } from '../../lib/messages';
 
 interface StickyHeaderProps {
   componentName?: string;
   score: ScoreBreakdown | null;
   totalIssues: number;
   issuesFixed: number;
+  lastDiff?: DiffResultData | null;
   onOpenSettings?: () => void;
 }
 
@@ -14,12 +15,13 @@ function getVerdictInfo(score: number): { label: string; color: string; bg: stri
   return { label: 'POOR', color: 'text-fg-danger', bg: 'bg-bg-danger' };
 }
 
-export default function StickyHeader({ componentName, score, totalIssues, issuesFixed, onOpenSettings }: StickyHeaderProps) {
+export default function StickyHeader({ componentName, score, totalIssues, issuesFixed, lastDiff, onOpenSettings }: StickyHeaderProps) {
   if (!score) return null;
 
   const verdict = getVerdictInfo(score.overall);
   const clampedFixed = Math.min(issuesFixed, totalIssues);
   const remaining = Math.max(0, totalIssues - clampedFixed);
+  const trend = lastDiff?.scoreDelta.overall ?? null;
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg-secondary">
@@ -29,6 +31,20 @@ export default function StickyHeader({ componentName, score, totalIssues, issues
           <span className={`text-11 font-semibold px-1.5 py-0.5 rounded ${verdict.bg} ${verdict.color}`}>
             {score.overall}/100
           </span>
+          {trend !== null && trend !== 0 && (
+            <span className={`text-11 font-medium ${trend > 0 ? 'text-fg-success' : 'text-fg-danger'}`} title={`${trend > 0 ? '+' : ''}${trend} vs baseline`}>
+              {trend > 0 ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="inline" aria-hidden="true">
+                  <polyline points="18 15 12 9 6 15" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="inline" aria-hidden="true">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              )}
+              {trend > 0 ? '+' : ''}{trend}
+            </span>
+          )}
           <span className={`text-11 px-1.5 py-0.5 rounded ${verdict.bg} ${verdict.color}`}>
             {verdict.label}
           </span>

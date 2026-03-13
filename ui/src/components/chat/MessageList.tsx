@@ -7,6 +7,7 @@ import FixResult from '../messages/FixResult';
 import AiReviewCard from '../messages/AiReviewCard';
 import ReferoGallery from '../messages/ReferoGallery';
 import FlowResultCard from '../messages/FlowResultCard';
+import DiffCard from '../messages/DiffCard';
 import ActionButtons from '../shared/ActionButtons';
 
 interface MessageListProps {
@@ -112,6 +113,21 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             return <AnalysisPhaseIndicator key={msg.id} phase={m.phase} done={m.done} />;
           case 'flow-result':
             return <FlowResultCard key={msg.id} data={m.data} onJumpToNode={onJumpToNode} />;
+          case 'diff-result':
+            return <DiffCard key={msg.id} data={m.data} />;
+          case 'baseline-saved':
+            return (
+              <div key={msg.id} className="bg-bg-success rounded-xl px-3 py-2 text-12">
+                <div className="flex items-center gap-1.5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-fg-success shrink-0" aria-hidden="true">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                    <polyline points="17 21 17 13 7 13 7 21" />
+                    <polyline points="7 3 7 8 15 8" />
+                  </svg>
+                  <span>Baseline saved (score: {m.data.overall}/100)</span>
+                </div>
+              </div>
+            );
           case 'score-update': {
             const diff = m.data.newScore - m.data.oldScore;
             const arrow = diff > 0 ? '\u2191' : diff < 0 ? '\u2193' : '\u2192';
@@ -154,8 +170,8 @@ function AnalysisPhaseIndicator({ phase, done }: { phase: AnalysisPhase; done?: 
     <div className="bg-bg-secondary rounded-xl px-3 py-2 space-y-1.5">
       {PHASE_ORDER.map((p, i) => {
         const isActive = i === currentIdx && !done;
-        const isComplete = i < currentIdx || done;
-        const isPending = i > currentIdx && !done;
+        const isComplete = i < currentIdx || (done && i === currentIdx);
+        const isPending = i > currentIdx;
 
         return (
           <div key={p} className="flex items-center gap-2 text-11">

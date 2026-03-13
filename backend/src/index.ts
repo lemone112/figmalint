@@ -32,14 +32,7 @@ const app = new Hono();
 // Middleware
 app.use('*', logger());
 
-// Body size limit — base64 screenshots can be large but must be capped to prevent OOM
-app.use('/api/*', bodyLimit({ maxSize: 25 * 1024 * 1024 }));
-
-// Bearer auth — when BACKEND_AUTH_TOKEN is set, require it on all /api/* except /api/health
-app.use('/api/*', bearerAuth());
-
-// Rate limiting — sliding window per IP
-app.use('/api/*', rateLimit());
+// CORS must come before auth so preflight OPTIONS requests are handled
 app.use(
   '*',
   cors({
@@ -55,6 +48,15 @@ app.use(
     allowHeaders: ['Content-Type', 'Authorization'],
   })
 );
+
+// Body size limit — base64 screenshots can be large but must be capped to prevent OOM
+app.use('/api/*', bodyLimit({ maxSize: 25 * 1024 * 1024 }));
+
+// Rate limiting — sliding window per IP (before auth so unauthenticated requests are rate-limited)
+app.use('/api/*', rateLimit());
+
+// Bearer auth — when BACKEND_AUTH_TOKEN is set, require it on all /api/* except /api/health
+app.use('/api/*', bearerAuth());
 
 // Routes
 app.route('/api', health);
