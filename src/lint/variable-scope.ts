@@ -228,6 +228,17 @@ async function resolveVariable(variableId: string): Promise<ResolvedVariable | n
 
 // ── Scope validation ──
 
+/**
+ * Map from a color field name to the specific scope(s) that are appropriate.
+ * E.g. a variable bound to "fills" should have a fill-related scope,
+ * while one bound to "strokes" should have STROKE_COLOR.
+ */
+const COLOR_FIELD_EXPECTED_SCOPES: Record<string, string[]> = {
+  fills: ['ALL_FILLS', 'FRAME_FILL', 'SHAPE_FILL', 'TEXT_FILL'],
+  strokes: ['STROKE_COLOR'],
+  textRangeFills: ['TEXT_FILL', 'ALL_FILLS'],
+};
+
 function checkScopeMismatch(
   usage: VariableUsage,
   variable: ResolvedVariable,
@@ -243,21 +254,33 @@ function checkScopeMismatch(
   const hasMatchingScope = variable.scopes.some(s => expectedScopes.includes(s));
 
   if (!hasMatchingScope && variable.scopes.length > 0) {
-    const isColorField = usage.field === 'fills' || usage.field === 'strokes' || usage.field === 'textRangeFills';
     const severity: 'warning' | 'info' = 'warning';
 
-    if (variable.resolvedType === 'COLOR' && !isColorField) {
-      issues.push({
-        id: nextId(),
-        type: 'naming',
-        severity,
-        nodeId: usage.nodeId,
-        nodeName: usage.nodeName,
-        message: `COLOR variable "${variable.name}" is bound to ${scopeLabel(usage.field)} — its scopes [${variable.scopes.join(', ')}] don't include this usage`,
-        currentValue: `${variable.name} on ${usage.field}`,
-        suggestions: [`Add appropriate scope for ${scopeLabel(usage.field)} usage`],
-        autoFixable: false,
-      });
+    if (variable.resolvedType === 'COLOR') {
+      // For COLOR variables, check field-specific scope alignment.
+      // A STROKE_COLOR variable bound to fills (or vice versa) is a mismatch
+      // even though both are "color fields".
+      const fieldSpecificScopes = COLOR_FIELD_EXPECTED_SCOPES[usage.field];
+      const hasFieldSpecificScope = fieldSpecificScopes
+        ? variable.scopes.some(s => fieldSpecificScopes.includes(s))
+        : false;
+
+      if (!hasFieldSpecificScope) {
+        const expectedLabel = fieldSpecificScopes
+          ? fieldSpecificScopes.join(' or ')
+          : scopeLabel(usage.field);
+        issues.push({
+          id: nextId(),
+          type: 'naming',
+          severity,
+          nodeId: usage.nodeId,
+          nodeName: usage.nodeName,
+          message: `COLOR variable "${variable.name}" is bound to ${scopeLabel(usage.field)} — its scopes [${variable.scopes.join(', ')}] don't include ${expectedLabel}`,
+          currentValue: `${variable.name} on ${usage.field}`,
+          suggestions: [`Add ${expectedLabel} scope for ${scopeLabel(usage.field)} usage`],
+          autoFixable: false,
+        });
+      }
     } else if (variable.resolvedType === 'FLOAT') {
       issues.push({
         id: nextId(),

@@ -48,7 +48,8 @@ const METRIC_CONFIG: Array<{ key: keyof DarkModeMetrics; label: string; icon: st
 export default function DarkModeCard({ data }: DarkModeCardProps) {
   const [expanded, setExpanded] = useState(false);
   const { summary, metrics, issues } = data;
-  const passRate = summary.totalChecked > 0
+  const hasChecks = summary.totalChecked > 0;
+  const passRate = hasChecks
     ? Math.round((summary.passed / summary.totalChecked) * 100)
     : 0;
   const allPassed = summary.failed === 0;
@@ -61,27 +62,37 @@ export default function DarkModeCard({ data }: DarkModeCardProps) {
         <span className="text-12 font-medium">Dark Mode Audit</span>
         <span
           className={`text-10 font-semibold px-1.5 py-0.5 rounded ${
-            allPassed ? 'bg-bg-success text-fg-success' : 'bg-bg-danger text-fg-danger'
+            !hasChecks
+              ? 'bg-bg-tertiary text-fg-secondary'
+              : allPassed
+                ? 'bg-bg-success text-fg-success'
+                : 'bg-bg-danger text-fg-danger'
           }`}
         >
-          {allPassed ? 'PASS' : `${summary.failed} FAIL`}
+          {!hasChecks ? 'N/A' : allPassed ? 'PASS' : `${summary.failed} FAIL`}
         </span>
       </div>
 
       {/* Pass/fail summary bar */}
       <div className="flex items-center gap-2">
         <div className="flex-1 h-2 bg-bg-tertiary rounded-full overflow-hidden flex">
-          <div
-            className="h-full bg-fg-success transition-all"
-            style={{ width: `${passRate}%` }}
-          />
-          <div
-            className="h-full bg-fg-danger transition-all"
-            style={{ width: `${100 - passRate}%` }}
-          />
+          {hasChecks ? (
+            <>
+              <div
+                className="h-full bg-fg-success transition-all"
+                style={{ width: `${passRate}%` }}
+              />
+              <div
+                className="h-full bg-fg-danger transition-all"
+                style={{ width: `${100 - passRate}%` }}
+              />
+            </>
+          ) : (
+            <div className="h-full w-full bg-fg-tertiary/30" />
+          )}
         </div>
         <span className="text-10 text-fg-secondary tabular-nums">
-          {summary.passed}/{summary.totalChecked}
+          {hasChecks ? `${summary.passed}/${summary.totalChecked}` : '0/0'}
         </span>
       </div>
 

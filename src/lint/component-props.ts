@@ -98,26 +98,24 @@ function checkTooManyBooleans(
 
 function checkMissingDescription(
   node: SceneNode,
-  propDefs: Record<string, { type: string; description?: string }>,
+  _propDefs: Record<string, { type: string; description?: string }>,
   issues: LintIssue[]
 ): void {
-  for (const [propName, def] of Object.entries(propDefs)) {
-    if (!def) continue;
-    const desc = (def as Record<string, unknown>).description;
-    if (desc === undefined || desc === null || desc === '') {
-      const baseName = propName.includes('#') ? propName.substring(0, propName.indexOf('#')) : propName;
-      issues.push({
-        id: nextId(),
-        type: 'naming',
-        severity: 'warning',
-        nodeId: node.id,
-        nodeName: node.name,
-        message: `Property "${baseName}" has no description — consumers may not understand its purpose`,
-        currentValue: `${baseName}: (no description)`,
-        suggestions: ['Add a short description explaining what this property controls'],
-        autoFixable: false,
-      });
-    }
+  // ComponentPropertyDefinition does NOT have a `description` field in the
+  // Figma Plugin API. Only the component node itself exposes `.description`.
+  const desc = (node as ComponentNode | ComponentSetNode).description;
+  if (desc === undefined || desc === null || desc === '') {
+    issues.push({
+      id: nextId(),
+      type: 'naming',
+      severity: 'warning',
+      nodeId: node.id,
+      nodeName: node.name,
+      message: `Component "${node.name}" has no description — consumers may not understand its purpose`,
+      currentValue: `(no description)`,
+      suggestions: ['Add a short description to the component explaining its intended usage'],
+      autoFixable: false,
+    });
   }
 }
 

@@ -45,6 +45,12 @@ export default function ScaleEditor({
     setIsAdding(false);
   }, [inputValue, values, onChange]);
 
+  const handleBlur = useCallback(() => {
+    handleAdd();
+    setInputValue('');
+    setIsAdding(false);
+  }, [handleAdd]);
+
   const handleInputKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter') {
@@ -136,7 +142,7 @@ export default function ScaleEditor({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleInputKeyDown}
-              onBlur={handleAdd}
+              onBlur={handleBlur}
               className="w-10 px-1 py-0.5 text-11 bg-bg-secondary border border-border rounded focus:outline-none focus:ring-1 focus:ring-bg-brand"
               placeholder="px"
               aria-label={`Add value to ${label}`}

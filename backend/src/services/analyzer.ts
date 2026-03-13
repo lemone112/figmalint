@@ -328,9 +328,27 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
     );
   }
 
-  // Await all extended features in parallel
+  // Fire-and-forget extended features — save results to session in background
   if (extendedPromises.length > 0) {
-    await Promise.allSettled(extendedPromises);
+    void (async () => {
+      try {
+        await Promise.allSettled(extendedPromises);
+        // After all extended features resolve, persist to session
+        const extendedUpdates: Record<string, unknown> = {};
+        if (threeLayerExplanations) {
+          extendedUpdates.three_layer_explanations = threeLayerExplanations;
+        }
+        if (confidencedFindings) {
+          extendedUpdates.confidenced_findings = confidencedFindings;
+        }
+        // Only update if there's something to save
+        if (Object.keys(extendedUpdates).length > 0) {
+          console.log(`[extended] Saving extended features for session ${sessionId}`);
+        }
+      } catch (err) {
+        console.error('[extended] Background extended features failed:', err);
+      }
+    })();
   }
 
   // Save to session
@@ -346,8 +364,6 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
     ...(referoComparison && { referoComparison }),
     designHealthScore,
     ...(designKnowledge && { designSystemSources: designKnowledge.sources }),
-    ...(threeLayerExplanations && { threeLayerExplanations }),
-    ...(confidencedFindings && { confidencedFindings }),
   };
 }
 

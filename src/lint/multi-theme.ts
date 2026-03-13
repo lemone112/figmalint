@@ -242,7 +242,7 @@ function checkIdenticalAcrossModes(
     const modeNames = collection.modes.map(m => m.name).join(', ');
     issues.push({
       id: nextId(),
-      type: 'naming',
+      type: 'theme',
       severity,
       nodeId: variable.id,
       nodeName: variable.name,
@@ -272,7 +272,7 @@ function checkMissingModeValues(
   if (missingModes.length > 0 && missingModes.length < collection.modes.length) {
     issues.push({
       id: nextId(),
-      type: 'naming',
+      type: 'theme',
       severity: 'critical',
       nodeId: variable.id,
       nodeName: variable.name,
@@ -306,7 +306,7 @@ function checkModeCountMismatch(
     if (staleModes.length > 0) {
       issues.push({
         id: nextId(),
-        type: 'naming',
+        type: 'theme',
         severity: 'warning',
         nodeId: variable.id,
         nodeName: variable.name,

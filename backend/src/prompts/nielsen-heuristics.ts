@@ -58,7 +58,7 @@ Look for: contextual tooltips, help links, onboarding guides, documentation acce
     {
       "id": "H1",
       "name": "Visibility of System Status",
-      "rating": "pass|needs_improvement|fail",
+      "rating": "pass|needs_improvement|fail|not_assessable",
       "evidence": ["<specific observation from the screenshot>"],
       "recommendation": "<actionable fix or null if pass>"
     }
@@ -76,6 +76,6 @@ Look for: contextual tooltips, help links, onboarding guides, documentation acce
   "summary": "<2-3 sentence summary>"
 }
 
-IMPORTANT: Only evaluate heuristics that are observable from the screenshot. If a heuristic cannot be assessed (e.g., H7 keyboard shortcuts from a static image), mark it as "pass" and note "Not assessable from screenshot" in evidence.
+IMPORTANT: Only evaluate heuristics that are observable from the screenshot. Use 'not_assessable' when a heuristic cannot be evaluated from a static screenshot (e.g. H7, H10). Do NOT count not_assessable as pass.
 ${GROUNDING_INSTRUCTIONS}`;
 }

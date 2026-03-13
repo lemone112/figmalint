@@ -76,16 +76,24 @@ function isLikelyLink(node: SceneNode): boolean {
 
 // ── Collect text nodes within a component/frame ──
 
-function collectTextNodes(node: SceneNode): TextNode[] {
+function collectTextNodes(
+  node: SceneNode,
+  cache: Map<string, TextNode[]>,
+): TextNode[] {
+  const cached = cache.get(node.id);
+  if (cached) return cached;
+
   const texts: TextNode[] = [];
   if (node.type === 'TEXT') {
     texts.push(node as TextNode);
   }
   if ('children' in node) {
     for (const child of (node as any).children as SceneNode[]) {
-      texts.push(...collectTextNodes(child));
+      texts.push(...collectTextNodes(child, cache));
     }
   }
+
+  cache.set(node.id, texts);
   return texts;
 }
 
@@ -94,10 +102,11 @@ function collectTextNodes(node: SceneNode): TextNode[] {
 function checkInconsistentAlignment(
   parent: SceneNode,
   issues: LintIssue[],
+  cache: Map<string, TextNode[]>,
 ): number {
   if (!isFrameLike(parent)) return 0;
 
-  const textNodes = collectTextNodes(parent);
+  const textNodes = collectTextNodes(parent, cache);
   if (textNodes.length < 2) return 0;
 
   // Only check body-size text (ignore headings/large text which may differ)
@@ -211,10 +220,11 @@ function checkUppercaseSpacing(
 function checkParagraphSpacing(
   parent: SceneNode,
   issues: LintIssue[],
+  cache: Map<string, TextNode[]>,
 ): number {
   if (!isFrameLike(parent)) return 0;
 
-  const textNodes = collectTextNodes(parent);
+  const textNodes = collectTextNodes(parent, cache);
   // Only flag when there are multiple text blocks
   if (textNodes.length < 2) return 0;
 
@@ -359,6 +369,7 @@ function traverse(
   skipHidden: boolean,
   parentLocked: boolean,
   seenComponents: Set<string>,
+  textNodeCache: Map<string, TextNode[]>,
 ): TraversalStats {
   const isLocked = parentLocked || ('locked' in node && (node as any).locked);
   const isHidden = 'visible' in node && !node.visible;
@@ -386,11 +397,11 @@ function traverse(
       seenComponents.add(nodeId);
 
       const preAlign = issues.length;
-      stats.totalChecked += checkInconsistentAlignment(node, issues);
+      stats.totalChecked += checkInconsistentAlignment(node, issues, textNodeCache);
       stats.inconsistentAlignment += issues.length - preAlign;
 
       const preParagraph = issues.length;
-      const paragraphChecked = checkParagraphSpacing(node, issues);
+      const paragraphChecked = checkParagraphSpacing(node, issues, textNodeCache);
       stats.totalChecked += paragraphChecked;
       stats.missingParagraphSpacing += issues.length - preParagraph;
     }
@@ -399,7 +410,7 @@ function traverse(
   // Recurse into children
   if ('children' in node) {
     for (const child of (node as any).children as SceneNode[]) {
-      const sub = traverse(child, issues, skipLocked, skipHidden, isLocked, seenComponents);
+      const sub = traverse(child, issues, skipLocked, skipHidden, isLocked, seenComponents, textNodeCache);
       stats.totalChecked += sub.totalChecked;
       stats.inconsistentAlignment += sub.inconsistentAlignment;
       stats.nonStandardLetterSpacing += sub.nonStandardLetterSpacing;
@@ -430,10 +441,11 @@ export function checkTypography(
 
   const issues: LintIssue[] = [];
   const seenComponents = new Set<string>();
+  const textNodeCache = new Map<string, TextNode[]>();
   const totals = emptyStats();
 
   for (const node of nodes) {
-    const sub = traverse(node, issues, skipLocked, skipHidden, false, seenComponents);
+    const sub = traverse(node, issues, skipLocked, skipHidden, false, seenComponents, textNodeCache);
     totals.totalChecked += sub.totalChecked;
     totals.inconsistentAlignment += sub.inconsistentAlignment;
     totals.nonStandardLetterSpacing += sub.nonStandardLetterSpacing;

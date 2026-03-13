@@ -54,6 +54,10 @@ export async function detectPageType(screenshotBase64: string): Promise<PageType
 
   const text = response.content[0].text.trim();
 
+  if (!text) {
+    return { type: 'other', confidence: 0, signals: [] };
+  }
+
   // Try to parse as JSON first (new structured format)
   try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -66,11 +70,16 @@ export async function detectPageType(screenshotBase64: string): Promise<PageType
       };
     }
   } catch {
-    // Fall through to legacy single-word parsing
+    // JSON parse failed — return safe fallback instead of falling through to legacy parsing
+    return { type: 'other', confidence: 0, signals: [] };
   }
 
-  // Legacy fallback: single word response
-  return { type: text.toLowerCase().split(/\s/)[0], confidence: 0.5, signals: [] };
+  // Legacy fallback: single word response — validate it looks like a reasonable type identifier
+  const candidate = text.toLowerCase().split(/\s/)[0];
+  if (!/^[a-z0-9_-]+$/i.test(candidate)) {
+    return { type: 'other', confidence: 0, signals: [] };
+  }
+  return { type: candidate, confidence: 0.5, signals: [] };
 }
 
 interface AiReviewCategory {

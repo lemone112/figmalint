@@ -23,6 +23,7 @@ export default function App() {
   const referoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingLintResult = useRef<LintResult | null>(null);
   const pendingScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number } | null>(null);
+  const pageSweepRequestId = useRef(0);
 
   // Try to send lint + screenshot to backend for AI analysis
   const tryBackendAnalysis = useCallback(async (
@@ -254,6 +255,7 @@ export default function App() {
           }
           case 'page-sweep-result': {
             const sweepData = event.data as PageSweepRawData;
+            const requestId = ++pageSweepRequestId.current;
             chat.addMessage({
               kind: 'ai-text',
               content: `Page sweep complete: ${sweepData.frames.length} frames analyzed. ${backendAvailable ? 'Running AI analysis...' : 'Backend unavailable, showing deterministic results.'}`,
@@ -263,8 +265,10 @@ export default function App() {
               analyzePageSweep({
                 frames: sweepData.frames,
               }).then((result) => {
+                if (pageSweepRequestId.current !== requestId) return;
                 chat.addMessage({ kind: 'page-sweep-result', data: result as PageSweepData });
               }).catch((err) => {
+                if (pageSweepRequestId.current !== requestId) return;
                 chat.addMessage({
                   kind: 'ai-text',
                   content: `AI page analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}. Showing deterministic results.`,
@@ -273,6 +277,7 @@ export default function App() {
                 chat.addMessage({ kind: 'page-sweep-result', data: deterministicResult });
               });
             } else {
+              if (pageSweepRequestId.current !== requestId) break;
               const deterministicResult = buildDeterministicSweepResult(sweepData);
               chat.addMessage({ kind: 'page-sweep-result', data: deterministicResult });
             }

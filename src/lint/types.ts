@@ -21,7 +21,8 @@ export type LintIssueType =
   | 'fittsLaw'
   | 'gestalt'
   | 'detachedInstance'
-  | 'responsive';
+  | 'responsive'
+  | 'theme';
 
 export type LintSeverity = 'critical' | 'warning' | 'info';
 

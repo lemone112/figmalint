@@ -238,6 +238,12 @@ function collectTopLevelFrames(
 
   // For the root selection, treat each selected node as potentially top-level
   for (const node of nodes) {
+    const isLocked = 'locked' in node && (node as any).locked === true;
+    const isHidden = 'visible' in node && !node.visible;
+
+    if (skipLocked && isLocked) continue;
+    if (skipHidden && isHidden) continue;
+
     if (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
       result.push(node);
     } else if ('children' in node) {

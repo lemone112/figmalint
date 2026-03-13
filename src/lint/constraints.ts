@@ -132,55 +132,57 @@ function checkScaleOnText(
 function checkConflictingConstraints(
   node: SceneNode,
   issues: LintIssue[],
-): boolean {
+): number {
   const constraints = getConstraints(node);
-  if (!constraints) return false;
+  if (!constraints) return 0;
 
-  const width = (node as any)?.width;
-  const height = (node as any)?.height;
-  let flagged = false;
+  let count = 0;
+
+  // Detect "fixed size" via layoutSizingHorizontal/Vertical rather than
+  // width/height > 0 (almost every node has positive dimensions).
+  const sizingH = (node as any).layoutSizingHorizontal as string | undefined;
+  const sizingV = (node as any).layoutSizingVertical as string | undefined;
 
   // Check for STRETCH horizontal with a fixed width
-  // We detect "fixed width" by checking if the node does NOT have layoutGrow
-  // and is not in an auto-layout parent (which would override width).
-  if (constraints.horizontal === 'STRETCH' && typeof width === 'number' && width > 0) {
-    // Check if the node has an explicit size constraint set
+  if (constraints.horizontal === 'STRETCH' && sizingH === 'FIXED') {
     const parent = node.parent;
     const parentIsFixed = parent && isFrameLike(parent as SceneNode) && !hasAutoLayout(parent as SceneNode);
 
     if (parentIsFixed) {
+      const width = (node as any)?.width;
       pushIssue(
         issues,
         'warning',
         node.id,
         node.name,
-        `STRETCH horizontal constraint but node has explicit width ${Math.round(width)}px — potentially contradictory`,
-        `STRETCH + ${Math.round(width)}px wide`,
+        `STRETCH horizontal constraint but node has fixed width${typeof width === 'number' ? ` ${Math.round(width)}px` : ''} — potentially contradictory`,
+        `STRETCH + FIXED width`,
         ['Remove fixed width or change constraint to MIN/CENTER'],
       );
-      flagged = true;
+      count++;
     }
   }
 
-  if (constraints.vertical === 'STRETCH' && typeof height === 'number' && height > 0) {
+  if (constraints.vertical === 'STRETCH' && sizingV === 'FIXED') {
     const parent = node.parent;
     const parentIsFixed = parent && isFrameLike(parent as SceneNode) && !hasAutoLayout(parent as SceneNode);
 
     if (parentIsFixed) {
+      const height = (node as any)?.height;
       pushIssue(
         issues,
         'warning',
         node.id,
         node.name,
-        `STRETCH vertical constraint but node has explicit height ${Math.round(height)}px — potentially contradictory`,
-        `STRETCH + ${Math.round(height)}px tall`,
+        `STRETCH vertical constraint but node has fixed height${typeof height === 'number' ? ` ${Math.round(height)}px` : ''} — potentially contradictory`,
+        `STRETCH + FIXED height`,
         ['Remove fixed height or change constraint to MIN/CENTER'],
       );
-      flagged = true;
+      count++;
     }
   }
 
-  return flagged;
+  return count;
 }
 
 // ── Check: Constraints in auto-layout parent (ignored) ──
@@ -266,9 +268,7 @@ function traverse(
         stats.noConstraints++;
       }
 
-      if (checkConflictingConstraints(node, issues)) {
-        stats.conflicting++;
-      }
+      stats.conflicting += checkConflictingConstraints(node, issues);
 
       if (checkConstraintsInAutoLayout(node, parentNode, issues)) {
         stats.ignoredInAutoLayout++;

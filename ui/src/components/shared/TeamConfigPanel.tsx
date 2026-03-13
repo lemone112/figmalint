@@ -128,6 +128,14 @@ export default function TeamConfigPanel({
 
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Sync when initialConfig changes (e.g. async load)
+  useEffect(() => {
+    if (initialConfig) {
+      setConfig(initialConfig);
+      setDirty(false);
+    }
+  }, [initialConfig]);
+
   // Mark dirty on any config change after initial render
   const isFirstRender = useRef(true);
   useEffect(() => {
