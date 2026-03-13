@@ -8310,6 +8310,169 @@ ${scoringCriteria}
     return issues;
   }
 
+  // src/flow/cross-screen-checks.ts
+  init_figma_helpers();
+  function extractDesignValues(node, values, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if ("fills" in node) {
+      const fills = node.fills;
+      if (fills !== figma.mixed && Array.isArray(fills)) {
+        for (const fill of fills) {
+          if (fill.type === "SOLID" && fill.visible !== false) {
+            values.colors.add(rgbToHex(fill.color.r, fill.color.g, fill.color.b));
+          }
+        }
+      }
+    }
+    if ("strokes" in node) {
+      const strokes = node.strokes;
+      if (Array.isArray(strokes)) {
+        for (const stroke of strokes) {
+          if (stroke.type === "SOLID" && stroke.visible !== false) {
+            values.colors.add(rgbToHex(stroke.color.r, stroke.color.g, stroke.color.b));
+          }
+        }
+      }
+    }
+    if (node.type === "TEXT") {
+      const textNode = node;
+      if (textNode.fontName !== figma.mixed) {
+        values.fontFamilies.add(textNode.fontName.family);
+      }
+      if (textNode.fontSize !== figma.mixed) {
+        values.fontSizes.add(textNode.fontSize);
+      }
+    }
+    if ("layoutMode" in node && node.layoutMode !== "NONE") {
+      const frame = node;
+      if (typeof frame.itemSpacing === "number") values.spacingValues.add(frame.itemSpacing);
+      if (typeof frame.paddingTop === "number") values.spacingValues.add(frame.paddingTop);
+      if (typeof frame.paddingBottom === "number") values.spacingValues.add(frame.paddingBottom);
+      if (typeof frame.paddingLeft === "number") values.spacingValues.add(frame.paddingLeft);
+      if (typeof frame.paddingRight === "number") values.spacingValues.add(frame.paddingRight);
+    }
+    if (node.type === "INSTANCE") {
+      const mainComponent = node.mainComponent;
+      if (mainComponent) {
+        values.componentNames.add(mainComponent.name);
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        extractDesignValues(child, values, skipLocked, skipHidden);
+      }
+    }
+  }
+  function setDifference(a, b) {
+    const diff = /* @__PURE__ */ new Set();
+    for (const item of a) {
+      if (!b.has(item)) diff.add(item);
+    }
+    return diff;
+  }
+  function checkCrossScreenConsistency(frameNodes, options = {}) {
+    var _a, _b;
+    const skipLocked = (_a = options.skipLocked) != null ? _a : true;
+    const skipHidden = (_b = options.skipHidden) != null ? _b : true;
+    const issues = [];
+    if (frameNodes.length < 2) return issues;
+    const allValues = frameNodes.map(({ frame, node }) => {
+      const values = {
+        frameId: frame.id,
+        frameName: frame.name,
+        colors: /* @__PURE__ */ new Set(),
+        fontFamilies: /* @__PURE__ */ new Set(),
+        fontSizes: /* @__PURE__ */ new Set(),
+        spacingValues: /* @__PURE__ */ new Set(),
+        componentNames: /* @__PURE__ */ new Set()
+      };
+      extractDesignValues(node, values, skipLocked, skipHidden);
+      return values;
+    });
+    const colorFrequency = /* @__PURE__ */ new Map();
+    for (const v of allValues) {
+      for (const color of v.colors) {
+        colorFrequency.set(color, (colorFrequency.get(color) || 0) + 1);
+      }
+    }
+    const threshold = allValues.length * 0.5;
+    const globalPalette = /* @__PURE__ */ new Set();
+    for (const [color, freq] of colorFrequency) {
+      if (freq >= threshold) globalPalette.add(color);
+    }
+    for (const v of allValues) {
+      const uniqueColors = setDifference(v.colors, globalPalette);
+      if (uniqueColors.size > 3) {
+        issues.push({
+          type: "dead-end",
+          // reusing type, will display as consistency issue
+          severity: "warning",
+          frameIds: [v.frameId],
+          message: `"${v.frameName}" uses ${uniqueColors.size} colors not found in other screens (${[...uniqueColors].slice(0, 3).join(", ")}${uniqueColors.size > 3 ? "..." : ""}). Check for color inconsistency.`
+        });
+      }
+    }
+    const allFonts = /* @__PURE__ */ new Set();
+    for (const v of allValues) {
+      for (const font of v.fontFamilies) allFonts.add(font);
+    }
+    if (allFonts.size > 3) {
+      const fontList = [...allFonts].join(", ");
+      issues.push({
+        type: "dead-end",
+        severity: "warning",
+        frameIds: allValues.map((v) => v.frameId),
+        message: `${allFonts.size} different font families across flow: ${fontList}. Flows should use 1-2 font families for consistency.`
+      });
+    }
+    for (const v of allValues) {
+      const otherFonts = /* @__PURE__ */ new Set();
+      for (const other of allValues) {
+        if (other.frameId !== v.frameId) {
+          for (const f of other.fontFamilies) otherFonts.add(f);
+        }
+      }
+      const uniqueFonts = setDifference(v.fontFamilies, otherFonts);
+      if (uniqueFonts.size > 0 && allValues.length > 2) {
+        issues.push({
+          type: "dead-end",
+          severity: "info",
+          frameIds: [v.frameId],
+          message: `"${v.frameName}" uses font${uniqueFonts.size > 1 ? "s" : ""} not seen elsewhere: ${[...uniqueFonts].join(", ")}.`
+        });
+      }
+    }
+    const allSizes = /* @__PURE__ */ new Set();
+    for (const v of allValues) {
+      for (const size of v.fontSizes) allSizes.add(size);
+    }
+    if (allSizes.size > 10) {
+      issues.push({
+        type: "dead-end",
+        severity: "info",
+        frameIds: allValues.map((v) => v.frameId),
+        message: `${allSizes.size} unique font sizes across the flow. Consider using a type scale with fewer sizes for consistency.`
+      });
+    }
+    const allSpacing = /* @__PURE__ */ new Set();
+    for (const v of allValues) {
+      for (const s of v.spacingValues) {
+        if (s > 0) allSpacing.add(s);
+      }
+    }
+    const nonStandard = [...allSpacing].filter((s) => s % 4 !== 0 && s !== 2);
+    if (nonStandard.length > 3) {
+      issues.push({
+        type: "dead-end",
+        severity: "info",
+        frameIds: allValues.map((v) => v.frameId),
+        message: `${nonStandard.length} non-standard spacing values across flow (${nonStandard.slice(0, 4).join(", ")}px). Consider aligning to a 4px/8px grid.`
+      });
+    }
+    return issues;
+  }
+
   // src/fix/fix-spacing.ts
   init_types();
   var SPACING_PROPERTIES = [
@@ -9643,9 +9806,21 @@ Respond naturally and helpfully to the user's question.`;
           total: graph.frames.length
         });
       }
+      const frameNodesForConsistency = [];
+      for (const frame of graph.frames) {
+        const node = await figma.getNodeByIdAsync(frame.id);
+        if (node) {
+          frameNodesForConsistency.push({ frame, node });
+        }
+      }
+      const consistencyIssues = checkCrossScreenConsistency(frameNodesForConsistency, {
+        skipLocked: currentLintSettings.skipLockedLayers,
+        skipHidden: currentLintSettings.skipHiddenLayers
+      });
+      const allGraphIssues = [...graphIssues, ...consistencyIssues];
       sendMessageToUI("flow-analysis-result", {
         graph,
-        graphIssues,
+        graphIssues: allGraphIssues,
         screenshots,
         lintResults
       });

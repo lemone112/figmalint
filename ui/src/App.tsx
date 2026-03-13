@@ -3,8 +3,8 @@ import ChatContainer from './components/chat/ChatContainer';
 import SettingsPanel from './components/shared/SettingsPanel';
 import { useChat } from './hooks/useChat';
 import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
-import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData } from './lib/messages';
-import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData } from './lib/api';
+import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData } from './lib/messages';
+import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow } from './lib/api';
 
 export default function App() {
   const chat = useChat();
@@ -159,6 +159,54 @@ export default function App() {
           case 'screenshot-error':
             // Screenshot failed — clear pending lint so we don't hang
             pendingLintResult.current = null;
+            break;
+          case 'flow-analysis-started': {
+            const status = (event.data as any)?.status || 'analyzing';
+            const progress = (event.data as any)?.progress;
+            const total = (event.data as any)?.total;
+            const progressText = progress && total ? ` (${progress}/${total})` : '';
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Flow analysis: ${status}${progressText}...`,
+            });
+            break;
+          }
+          case 'flow-analysis-result': {
+            const flowData = event.data as FlowAnalysisData;
+            // Show deterministic results immediately
+            chat.addMessage({ kind: 'flow-result', data: flowData });
+
+            // Fire backend AI analysis in background if available
+            if (backendAvailable && Object.keys(flowData.screenshots).length > 0) {
+              chat.addMessage({ kind: 'ai-text', content: 'Running AI flow analysis...' });
+              analyzeFlow({
+                frames: flowData.graph.frames,
+                edges: flowData.graph.edges,
+                graphIssues: flowData.graphIssues,
+                screenshots: flowData.screenshots,
+                lintResults: flowData.lintResults,
+              }).then(result => {
+                if (result.flowAnalysis) {
+                  // Update the flow result with AI data
+                  chat.addMessage({
+                    kind: 'flow-result',
+                    data: { ...flowData, aiAnalysis: result.flowAnalysis },
+                  });
+                }
+              }).catch(err => {
+                chat.addMessage({
+                  kind: 'ai-text',
+                  content: `AI flow analysis unavailable: ${err instanceof Error ? err.message : 'Unknown error'}`,
+                });
+              });
+            }
+            break;
+          }
+          case 'flow-analysis-error':
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Flow analysis failed: ${(event.data as any)?.error || 'Unknown error'}`,
+            });
             break;
           case 'api-key-status':
             setHasApiKey((event.data as any)?.hasKey || false);
@@ -345,6 +393,12 @@ export default function App() {
           break;
         }
 
+        case 'analyze-flow': {
+          chat.addMessage({ kind: 'ai-text', content: 'Starting flow analysis on current page...' });
+          post('analyze-flow');
+          break;
+        }
+
         case 'toggle-mode': {
           const next = analysisMode === 'quick' ? 'deep' : 'quick';
           setAnalysisMode(next);
@@ -392,6 +446,12 @@ export default function App() {
             onClick={handleAnalyze}
           >
             Analyze Selection
+          </button>
+          <button
+            className="flex-1 py-2 bg-bg-secondary text-fg text-12 font-medium rounded-md hover:bg-bg-hover transition-colors border border-border"
+            onClick={() => handleAction('analyze-flow')}
+          >
+            Analyze Flow
           </button>
           <button
             onClick={() => setShowSettings(true)}

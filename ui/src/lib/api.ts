@@ -191,3 +191,45 @@ export async function checkHealth(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * POST /api/analyze-flow — multi-frame AI flow analysis.
+ */
+export async function analyzeFlow(data: {
+  frames: Array<{ id: string; name: string; width: number; height: number; isFlowStartingPoint: boolean }>;
+  edges: Array<{ sourceFrameId: string; sourceNodeName: string; destinationFrameId: string; trigger: string; navigation: string }>;
+  graphIssues: Array<{ type: string; severity: string; frameIds: string[]; message: string }>;
+  screenshots: Record<string, string>;
+  lintResults: Record<string, unknown>;
+}): Promise<{
+  flowAnalysis: {
+    scenarioAnalysis: {
+      missingScreens: Array<{ type: string; description: string; afterFrameName: string }>;
+      happyPathComplete: boolean;
+      errorRecoveryPaths: boolean;
+      backNavigationPresent: boolean;
+    };
+    consistencyAnalysis: {
+      colorDrift: boolean;
+      typographyDrift: boolean;
+      layoutConsistency: string;
+      terminologyConsistency: string;
+      evidence: string[];
+    };
+    recommendations: Array<{ title: string; description: string; severity: string; affectedFrames: string[] }>;
+    summary: string;
+  } | null;
+}> {
+  const resp = await fetch(`${backendUrl}/api/analyze-flow`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || 'Flow analysis failed');
+  }
+
+  return resp.json();
+}
