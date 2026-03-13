@@ -27,6 +27,8 @@ function ChatContainerRoot({
       resize="smooth"
       initial="instant"
       role="log"
+      aria-live="polite"
+      aria-relevant="additions"
       {...props}
     >
       {children}

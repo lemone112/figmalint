@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { Loader } from '@/components/ui/loader';
 import StickyHeader from './StickyHeader';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
@@ -62,9 +63,9 @@ export default function ChatContainer({
 
       {/* Message stream */}
       {isAnalyzing ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="inline-block w-6 h-6 border-2 border-bg-brand border-t-transparent rounded-full animate-spin mb-2" />
+        <div className="flex-1 flex items-center justify-center" role="status" aria-live="polite">
+          <div className="text-center space-y-2">
+            <Loader variant="typing" size="md" />
             <p className="text-12 text-fg-secondary">Analyzing...</p>
           </div>
         </div>

@@ -16,8 +16,8 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
     <div className="border-t border-border">
       {/* Loading indicator */}
       {isLoading && (
-        <div className="flex items-center gap-2 px-3 py-1 text-11 text-fg-secondary">
-          <div className="w-3 h-3 border-[1.5px] border-bg-brand border-t-transparent rounded-full animate-spin shrink-0" />
+        <div className="flex items-center gap-2 px-3 py-1 text-11 text-fg-secondary" role="status" aria-live="polite">
+          <div className="w-3 h-3 border-[1.5px] border-bg-brand border-t-transparent rounded-full animate-spin shrink-0" aria-hidden="true" />
           <span>Running...</span>
         </div>
       )}
@@ -25,6 +25,7 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
       <fieldset
         disabled={isLoading}
         aria-busy={isLoading}
+        aria-label="Quick actions"
         className={`min-w-0 m-0 border-0 p-0 flex items-center gap-1.5 px-3 py-1 overflow-x-auto ${isLoading ? 'opacity-50' : ''}`}
       >
         {hasFixable && (
@@ -100,6 +101,7 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
         <fieldset
           disabled={isLoading}
           aria-busy={isLoading}
+          aria-label="Advanced actions"
           className={`min-w-0 m-0 border-0 p-0 flex items-center gap-1.5 px-3 py-1 overflow-x-auto border-t border-border/50 ${isLoading ? 'opacity-50' : ''}`}
         >
           <button

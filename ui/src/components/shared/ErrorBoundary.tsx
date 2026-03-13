@@ -40,7 +40,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
       const canRetry = this.state.retryCount < ErrorBoundary.MAX_RETRIES;
 
       return (
-        <div className="h-full flex items-center justify-center px-6">
+        <div className="h-full flex items-center justify-center px-6" role="alert">
           <div className="max-w-[280px] text-center space-y-3">
             <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-bg-danger">
               <svg
@@ -59,7 +59,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
               </svg>
             </div>
             <div>
-              <p className="text-13 font-medium text-fg">Something went wrong</p>
+              <h2 className="text-13 font-medium text-fg">Something went wrong</h2>
               <p className="text-11 text-fg-secondary mt-1">
                 {canRetry
                   ? 'An unexpected error occurred. Try again or reload the plugin.'

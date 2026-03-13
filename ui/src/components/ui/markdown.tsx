@@ -1,5 +1,4 @@
 import { cn } from "@/lib/utils"
-import { marked } from "marked"
 import { memo, useId, useMemo } from "react"
 import ReactMarkdown, { Components } from "react-markdown"
 import remarkBreaks from "remark-breaks"
@@ -14,8 +13,7 @@ export type MarkdownProps = {
 }
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
-  const tokens = marked.lexer(markdown)
-  return tokens.map((token) => token.raw)
+  return markdown.split(/\n{2,}/).filter(Boolean)
 }
 
 function extractLanguage(className?: string): string {
