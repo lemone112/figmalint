@@ -2264,6 +2264,9 @@
       <button class="tab-button active" id="tab-analyze" onclick="switchTab('analyze')">
         Analyze
       </button>
+      <button class="tab-button" id="tab-lint" onclick="switchTab('lint')">
+        Lint
+      </button>
       <button class="tab-button" id="tab-chat" onclick="switchTab('chat')">
         Chat
       </button>
@@ -2378,6 +2381,9 @@
 
         <!-- Analysis Results -->
         <div id="analysis-results" class="hidden">
+          <!-- Design Review (CodeRabbit-style) -->
+          <div id="design-review-panel" style="display: none;"></div>
+
           <!-- Audit View -->
           <div class="collapsible">
             <div class="collapsible-header active" onclick="toggleCollapsible(this)">
@@ -2512,6 +2518,69 @@
               <div class="skeleton"></div>
               <div class="skeleton" style="width: 80%;"></div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab Content: Design Lint -->
+    <div class="tab-content" id="content-lint">
+      <div class="content">
+        <!-- Lint Controls -->
+        <div class="lint-controls" style="padding: var(--spacing-05); display: flex; gap: var(--spacing-03); align-items: center; border-bottom: 1px solid var(--border);">
+          <button class="button button-primary" id="run-lint-btn" onclick="runDesignLint()" style="flex: 1;">
+            Run Lint
+          </button>
+          <button class="button button-ghost" id="lint-settings-btn" onclick="toggleLintSettings()" title="Lint settings">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 8.5h-1c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5h1c.3 0 .5-.2.5-.5v-1c0-.3-.2-.5-.5-.5h-1c-.8 0-1.5-.7-1.5-1.5S11.7 1 12.5 1h1c.3 0 .5-.2.5-.5C14 .2 13.8 0 13.5 0h-1C11.1 0 10 1.1 10 2.5c0 .5.2 1 .4 1.5H5.6c.3-.4.4-.9.4-1.5C6 1.1 4.9 0 3.5 0h-1C2.2 0 2 .2 2 .5s.2.5.5.5h1C4.3 1 5 1.7 5 2.5S4.3 4 3.5 4h-1c-.3 0-.5.2-.5.5v1c0 .3.2.5.5.5h1C4.3 6 5 6.7 5 7.5S4.3 9 3.5 9h-1c-.3 0-.5.2-.5.5v1c0 .3.2.5.5.5h1c.8 0 1.5.7 1.5 1.5s-.7 1.5-1.5 1.5h-1c-.3 0-.5.2-.5.5s.2.5.5.5h1C4.9 15 6 13.9 6 12.5c0-.5-.2-1-.4-1.5h4.8c-.3.4-.4.9-.4 1.5 0 1.4 1.1 2.5 2.5 2.5h1c.3 0 .5-.2.5-.5s-.2-.5-.5-.5h-1c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5h1c.3 0 .5-.2.5-.5v-1c0-.3-.2-.5-.5-.5h-1c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5h1c.3 0 .5-.2.5-.5s-.2-.5-.5-.5z" fill="currentColor"/></svg>
+          </button>
+        </div>
+
+        <!-- Lint Settings Panel (hidden by default) -->
+        <div id="lint-settings-panel" style="display: none; padding: var(--spacing-05); border-bottom: 1px solid var(--border); background: var(--surface);">
+          <h3 style="margin: 0 0 var(--spacing-03); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);">Lint Rules</h3>
+          <div style="display: flex; flex-direction: column; gap: var(--spacing-02);">
+            <label style="display: flex; align-items: center; gap: var(--spacing-03); font-size: var(--font-size-xs); cursor: pointer;">
+              <input type="checkbox" id="lint-check-fills" checked onchange="updateLintSettings()"> Check fill styles
+            </label>
+            <label style="display: flex; align-items: center; gap: var(--spacing-03); font-size: var(--font-size-xs); cursor: pointer;">
+              <input type="checkbox" id="lint-check-strokes" checked onchange="updateLintSettings()"> Check stroke styles
+            </label>
+            <label style="display: flex; align-items: center; gap: var(--spacing-03); font-size: var(--font-size-xs); cursor: pointer;">
+              <input type="checkbox" id="lint-check-effects" checked onchange="updateLintSettings()"> Check effect styles
+            </label>
+            <label style="display: flex; align-items: center; gap: var(--spacing-03); font-size: var(--font-size-xs); cursor: pointer;">
+              <input type="checkbox" id="lint-check-text" checked onchange="updateLintSettings()"> Check text styles
+            </label>
+            <label style="display: flex; align-items: center; gap: var(--spacing-03); font-size: var(--font-size-xs); cursor: pointer;">
+              <input type="checkbox" id="lint-check-radius" checked onchange="updateLintSettings()"> Check border radius
+            </label>
+            <label style="display: flex; align-items: center; gap: var(--spacing-03); font-size: var(--font-size-xs); cursor: pointer;">
+              <input type="checkbox" id="lint-skip-locked" checked onchange="updateLintSettings()"> Skip locked layers
+            </label>
+            <label style="display: flex; align-items: center; gap: var(--spacing-03); font-size: var(--font-size-xs); cursor: pointer;">
+              <input type="checkbox" id="lint-skip-hidden" checked onchange="updateLintSettings()"> Skip hidden layers
+            </label>
+          </div>
+          <div style="margin-top: var(--spacing-03);">
+            <label style="font-size: var(--font-size-xs); font-weight: var(--font-weight-medium);">Allowed radii (comma separated):</label>
+            <input type="text" id="lint-allowed-radii" value="0, 2, 4, 8, 12, 16, 24, 32" onchange="updateLintSettings()"
+              style="width: 100%; margin-top: var(--spacing-02); padding: var(--spacing-02) var(--spacing-03); font-size: var(--font-size-xs); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--background);">
+          </div>
+          <div style="margin-top: var(--spacing-03); display: flex; gap: var(--spacing-03);">
+            <button class="button button-ghost" onclick="clearLintIgnored()" style="font-size: var(--font-size-xs);">Clear Ignored</button>
+          </div>
+        </div>
+
+        <!-- Lint Summary -->
+        <div id="lint-summary" style="display: none; padding: var(--spacing-05); border-bottom: 1px solid var(--border); background: var(--surface);">
+        </div>
+
+        <!-- Lint Results -->
+        <div id="lint-results" style="flex: 1; overflow-y: auto; padding: var(--spacing-03);">
+          <div class="empty-state" style="text-align: center; padding: var(--spacing-07); color: var(--text-secondary);">
+            <p style="font-size: var(--font-size-sm); margin: 0 0 var(--spacing-02);">Select layers and click "Run Lint"</p>
+            <p style="font-size: var(--font-size-xs); margin: 0;">Checks fills, strokes, effects, text styles, and border radius against Figma styles. No API key required.</p>
           </div>
         </div>
       </div>
@@ -4154,6 +4223,15 @@
         case 'description-updated':
           handleDescriptionUpdated(data);
           break;
+        case 'design-lint-result':
+          handleDesignLintResult(data);
+          break;
+        case 'lint-settings-loaded':
+          handleLintSettingsLoaded(data);
+          break;
+        case 'lint-selected-nodes':
+          updateStatus(`Selected ${data.count} nodes with value: ${data.value}`, 'info');
+          break;
         default:
           console.log('Unknown message type:', type);
       }
@@ -4382,6 +4460,15 @@
       if (fixCounts.total > 0 && analysisResults) {
         const barHtml = renderQuickActionsBar(fixCounts);
         analysisResults.insertAdjacentHTML('afterbegin', barHtml);
+      }
+
+      // Render Design Review (CodeRabbit-style summary)
+      const reviewPanel = document.getElementById('design-review-panel');
+      if (data.designReview) {
+        renderDesignReview(data.designReview);
+      } else if (reviewPanel) {
+        reviewPanel.style.display = 'none';
+        reviewPanel.innerHTML = '';
       }
 
       // Update chat component context if we're on chat tab or switching to it
@@ -4674,8 +4761,48 @@
               <span class="audit-status ${status}">${
                 status === 'pass' ? ICO.checkCircle : status === 'warning' ? ICO.warnTriangle : ICO.xCircle
               }</span>
-              <span class="audit-label">${item.check}</span>
-              ${item.suggestion ? `<div class="tooltip" style="margin-left: 4px;"><div class="info-icon" style="font-size: 9px; width: 14px; height: 14px;">i</div><span class="tooltiptext">${item.suggestion}</span></div>` : ''}
+              <span class="audit-label">${escapeHtml(item.check)}</span>
+              ${item.suggestion ? `<div class="tooltip" style="margin-left: 4px;"><div class="info-icon" style="font-size: 9px; width: 14px; height: 14px;">i</div><span class="tooltiptext">${escapeHtml(item.suggestion)}</span></div>` : ''}
+            </div>
+          `;
+        });
+        html += '</div>';
+      }
+
+      // Design Lint Audit (deterministic style checks)
+      if (audit.designLint && audit.designLint.length > 0) {
+        html += '<div class="audit-section">';
+        html += `
+          <div class="section-header">
+            <h4 class="section-title">Style Consistency</h4>
+            <div class="tooltip">
+              <div class="info-icon">i</div>
+              <span class="tooltiptext">
+                <strong>Style Consistency</strong><br>
+                Deterministic checks for missing Figma styles. Ensures all fills, strokes, effects, text, and border radii use design styles or variables instead of hard-coded values.
+              </span>
+            </div>
+          </div>
+        `;
+
+        audit.designLint.forEach(item => {
+          totalCount++;
+          const status = item.status;
+          if (status === 'pass') passCount++;
+
+          // Weight 2.5x — critical for design system consistency
+          weightedTotalScore += 2.5;
+          if (status === 'pass') {
+            weightedPassScore += 2.5;
+          }
+
+          html += `
+            <div class="audit-item">
+              <span class="audit-status ${status}">${
+                status === 'pass' ? ICO.checkCircle : status === 'warning' ? ICO.warnTriangle : ICO.xCircle
+              }</span>
+              <span class="audit-label">${escapeHtml(item.check)}</span>
+              ${item.suggestion ? `<div class="tooltip" style="margin-left: 4px;"><div class="info-icon" style="font-size: 9px; width: 14px; height: 14px;">i</div><span class="tooltiptext">${escapeHtml(item.suggestion)}</span></div>` : ''}
             </div>
           `;
         });
@@ -6364,6 +6491,104 @@
       return counts;
     }
 
+    // Design Review Rendering (CodeRabbit-style)
+    function renderDesignReview(review) {
+      const panel = document.getElementById('design-review-panel');
+      if (!panel) return;
+      panel.style.display = 'block';
+
+      const verdictColors = {
+        pass: { bg: 'var(--success-bg)', border: 'var(--success)', text: 'var(--success-text)', label: 'PASSED' },
+        warn: { bg: 'var(--warning-bg)', border: 'var(--warning)', text: 'var(--warning-text)', label: 'NEEDS WORK' },
+        fail: { bg: 'var(--error-bg)', border: 'var(--error)', text: 'var(--error-text)', label: 'ISSUES FOUND' },
+      };
+      const v = verdictColors[review.verdict] || verdictColors.warn;
+
+      const severityMeta = {
+        critical: { icon: '!!', color: 'var(--error)', bg: 'var(--error-bg)' },
+        warning: { icon: '!', color: 'var(--warning-text)', bg: 'var(--warning-bg)' },
+        info: { icon: 'i', color: 'var(--info-text)', bg: 'var(--info-bg)' },
+        suggestion: { icon: '+', color: 'var(--interactive)', bg: 'var(--interactive-light)' },
+      };
+
+      let findingsHtml = '';
+      // Group findings by severity
+      const grouped = { critical: [], warning: [], info: [], suggestion: [] };
+      (review.findings || []).forEach(f => {
+        if (grouped[f.severity]) grouped[f.severity].push(f);
+        else grouped.info.push(f);
+      });
+
+      for (const [severity, items] of Object.entries(grouped)) {
+        if (items.length === 0) continue;
+        const meta = severityMeta[severity];
+        items.forEach(f => {
+          findingsHtml += `
+            <div style="display: flex; gap: var(--spacing-03); padding: var(--spacing-03) 0; border-bottom: 1px solid var(--border);" ${f.nodeId ? `onclick="selectFigmaNode('${f.nodeId}')" style="cursor: pointer;"` : ''}>
+              <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: ${meta.bg}; color: ${meta.color}; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 1px;">${meta.icon}</span>
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--text-primary);">
+                  ${escapeHtml(f.title)}
+                  ${f.autoFixable ? '<span style="font-size: 9px; padding: 1px 5px; background: var(--interactive-light); color: var(--interactive); border-radius: 8px; margin-left: 4px;">auto-fixable</span>' : ''}
+                </div>
+                <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">${escapeHtml(f.description)}</div>
+                <span style="font-size: 9px; color: var(--text-tertiary);">${escapeHtml(f.category)}</span>
+              </div>
+            </div>`;
+        });
+      }
+
+      let nextStepsHtml = '';
+      if (review.nextSteps && review.nextSteps.length > 0) {
+        nextStepsHtml = `
+          <div style="margin-top: var(--spacing-04); padding: var(--spacing-04); background: var(--interactive-light); border-radius: var(--radius-md);">
+            <div style="font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); color: var(--interactive); margin-bottom: var(--spacing-02);">Next Steps</div>
+            <ol style="margin: 0; padding-left: 18px; font-size: var(--font-size-xs); color: var(--text-primary); line-height: 1.6;">
+              ${review.nextSteps.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+            </ol>
+          </div>`;
+      }
+
+      const totalFindings = (review.findings || []).length;
+      const criticalCount = grouped.critical.length;
+      const warningCount = grouped.warning.length;
+
+      panel.innerHTML = `
+        <div style="margin: var(--spacing-04); border: 1px solid ${v.border}; border-radius: var(--radius-lg); overflow: hidden;">
+          <div style="padding: var(--spacing-04) var(--spacing-05); background: ${v.bg}; display: flex; align-items: center; gap: var(--spacing-03); cursor: pointer;" onclick="toggleDesignReviewBody()">
+            <span style="font-size: var(--font-size-xs); font-weight: 700; color: ${v.text}; background: ${v.border}; color: white; padding: 2px 8px; border-radius: 10px;">${v.label}</span>
+            <span style="font-size: var(--font-size-sm); color: ${v.text}; flex: 1;">${escapeHtml(review.headline)}</span>
+            <span style="font-size: var(--font-size-xs); color: ${v.text};" id="design-review-toggle-icon">▼</span>
+          </div>
+          <div id="design-review-body" style="padding: 0 var(--spacing-05); background: var(--surface);">
+            ${totalFindings > 0 ? `
+              <div style="padding: var(--spacing-03) 0; font-size: var(--font-size-xs); color: var(--text-secondary); border-bottom: 1px solid var(--border);">
+                ${criticalCount > 0 ? `<span style="color: var(--error-text); margin-right: 12px;">${criticalCount} critical</span>` : ''}
+                ${warningCount > 0 ? `<span style="color: var(--warning-text); margin-right: 12px;">${warningCount} warning${warningCount > 1 ? 's' : ''}</span>` : ''}
+                ${grouped.info.length > 0 ? `<span style="color: var(--info-text); margin-right: 12px;">${grouped.info.length} info</span>` : ''}
+                ${grouped.suggestion.length > 0 ? `<span style="color: var(--interactive);">${grouped.suggestion.length} suggestion${grouped.suggestion.length > 1 ? 's' : ''}</span>` : ''}
+              </div>
+              ${findingsHtml}
+            ` : '<div style="padding: var(--spacing-04); text-align: center; color: var(--success-text); font-size: var(--font-size-xs);">No issues found — great job!</div>'}
+            ${nextStepsHtml}
+            <div style="height: var(--spacing-04);"></div>
+          </div>
+        </div>`;
+    }
+
+    function toggleDesignReviewBody() {
+      const body = document.getElementById('design-review-body');
+      const icon = document.getElementById('design-review-toggle-icon');
+      if (!body) return;
+      if (body.style.display === 'none') {
+        body.style.display = 'block';
+        if (icon) icon.textContent = '▼';
+      } else {
+        body.style.display = 'none';
+        if (icon) icon.textContent = '▶';
+      }
+    }
+
     // Phase 2: Render Quick Actions bar at top of analysis results
     function renderQuickActionsBar(counts) {
       if (counts.total === 0) return '';
@@ -6889,6 +7114,180 @@
         handleSendChat();
       }
     };
+
+    // ──────────────────────────────────────────────
+    // Design Lint Functions (deterministic, no AI)
+    // ──────────────────────────────────────────────
+
+    let lastLintResult = null;
+
+    function runDesignLint() {
+      const btn = document.getElementById('run-lint-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Scanning...'; }
+      const settings = getLintSettings();
+      parent.postMessage({ pluginMessage: { type: 'run-design-lint', data: { settings } } }, '*');
+    }
+
+    function getLintSettings() {
+      return {
+        checkFills: document.getElementById('lint-check-fills')?.checked ?? true,
+        checkStrokes: document.getElementById('lint-check-strokes')?.checked ?? true,
+        checkEffects: document.getElementById('lint-check-effects')?.checked ?? true,
+        checkTextStyles: document.getElementById('lint-check-text')?.checked ?? true,
+        checkRadius: document.getElementById('lint-check-radius')?.checked ?? true,
+        skipLockedLayers: document.getElementById('lint-skip-locked')?.checked ?? true,
+        skipHiddenLayers: document.getElementById('lint-skip-hidden')?.checked ?? true,
+        allowedRadii: (document.getElementById('lint-allowed-radii')?.value || '0,2,4,8,12,16,24,32')
+          .split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)),
+      };
+    }
+
+    function updateLintSettings() {
+      const settings = getLintSettings();
+      parent.postMessage({ pluginMessage: { type: 'lint-save-settings', data: { settings } } }, '*');
+    }
+
+    function toggleLintSettings() {
+      const panel = document.getElementById('lint-settings-panel');
+      if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function clearLintIgnored() {
+      parent.postMessage({ pluginMessage: { type: 'lint-clear-ignored' } }, '*');
+    }
+
+    function handleDesignLintResult(result) {
+      lastLintResult = result;
+      const btn = document.getElementById('run-lint-btn');
+      if (btn) { btn.disabled = false; btn.textContent = 'Run Lint'; }
+
+      renderLintSummary(result.summary);
+      renderLintErrors(result.errors);
+    }
+
+    function handleLintSettingsLoaded(settings) {
+      if (!settings) return;
+      const map = {
+        'lint-check-fills': settings.checkFills,
+        'lint-check-strokes': settings.checkStrokes,
+        'lint-check-effects': settings.checkEffects,
+        'lint-check-text': settings.checkTextStyles,
+        'lint-check-radius': settings.checkRadius,
+        'lint-skip-locked': settings.skipLockedLayers,
+        'lint-skip-hidden': settings.skipHiddenLayers,
+      };
+      for (const [id, val] of Object.entries(map)) {
+        const el = document.getElementById(id);
+        if (el) el.checked = val;
+      }
+      if (settings.allowedRadii) {
+        const el = document.getElementById('lint-allowed-radii');
+        if (el) el.value = settings.allowedRadii.join(', ');
+      }
+    }
+
+    function renderLintSummary(summary) {
+      const el = document.getElementById('lint-summary');
+      if (!el) return;
+      el.style.display = 'block';
+
+      if (summary.totalErrors === 0) {
+        el.innerHTML = `
+          <div style="display: flex; align-items: center; gap: var(--spacing-03); color: var(--success-text);">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="2"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span style="font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);">No issues found</span>
+            <span style="font-size: var(--font-size-xs); color: var(--text-secondary); margin-left: auto;">${summary.totalNodes} nodes checked</span>
+          </div>`;
+        return;
+      }
+
+      const typeLabels = { fill: 'Fill', stroke: 'Stroke', effect: 'Effect', text: 'Text', radius: 'Radius' };
+      const chips = Object.entries(summary.byType)
+        .filter(([, count]) => count > 0)
+        .map(([type, count]) => `<span style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; font-size: var(--font-size-xs); border-radius: 10px; background: var(--error-bg); color: var(--error-text);">${typeLabels[type]} ${count}</span>`)
+        .join(' ');
+
+      el.innerHTML = `
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-02);">
+          <span style="font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); color: var(--error-text);">${summary.totalErrors} issue${summary.totalErrors === 1 ? '' : 's'}</span>
+          <span style="font-size: var(--font-size-xs); color: var(--text-secondary);">in ${summary.nodesWithErrors} node${summary.nodesWithErrors === 1 ? '' : 's'}</span>
+          <span style="font-size: var(--font-size-xs); color: var(--text-tertiary); margin-left: auto;">${summary.totalNodes} checked</span>
+        </div>
+        <div style="margin-top: var(--spacing-02); display: flex; flex-wrap: wrap; gap: var(--spacing-02);">${chips}</div>`;
+    }
+
+    function renderLintErrors(errors) {
+      const container = document.getElementById('lint-results');
+      if (!container) return;
+
+      if (errors.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: var(--spacing-07); color: var(--success-text); font-size: var(--font-size-sm);">All layers use proper design styles!</div>';
+        return;
+      }
+
+      // Group by node
+      const grouped = {};
+      for (const err of errors) {
+        if (!grouped[err.nodeId]) {
+          grouped[err.nodeId] = { nodeName: err.nodeName, nodeType: err.nodeType, path: err.path, errors: [] };
+        }
+        grouped[err.nodeId].errors.push(err);
+      }
+
+      const typeColors = { fill: '#0f62fe', stroke: '#8a3ffc', effect: '#f1c21b', text: '#198038', radius: '#da1e28' };
+      const typeIcons = { fill: 'F', stroke: 'S', effect: 'E', text: 'T', radius: 'R' };
+
+      let html = '';
+      for (const [nodeId, group] of Object.entries(grouped)) {
+        html += `<div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: var(--spacing-03); overflow: hidden;">`;
+        html += `<div style="display: flex; align-items: center; padding: var(--spacing-03) var(--spacing-04); border-bottom: 1px solid var(--border); background: var(--background); cursor: pointer;" onclick="lintSelectNode('${escapeAttr(nodeId)}')">`;
+        html += `<span style="font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeAttr(group.path)}">${escapeHtml(group.nodeName)}</span>`;
+        html += `<span style="font-size: var(--font-size-xs); color: var(--text-tertiary); margin-left: var(--spacing-03);">${escapeHtml(group.nodeType)}</span>`;
+        html += `<button onclick="event.stopPropagation(); lintIgnoreNode('${escapeAttr(nodeId)}')" style="margin-left: var(--spacing-03); background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: var(--font-size-xs); padding: 2px 6px; border-radius: var(--radius-sm);" title="Ignore this layer">Ignore</button>`;
+        html += `</div>`;
+
+        for (const err of group.errors) {
+          const color = typeColors[err.errorType] || 'var(--text-secondary)';
+          const icon = typeIcons[err.errorType] || '?';
+          html += `<div style="display: flex; align-items: center; padding: var(--spacing-02) var(--spacing-04); gap: var(--spacing-03); border-bottom: 1px solid var(--border);">`;
+          html += `<span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: ${color}; color: white; font-size: 9px; font-weight: 700; flex-shrink: 0;">${icon}</span>`;
+          html += `<span style="font-size: var(--font-size-xs); color: var(--text-primary); flex: 1;">${escapeHtml(err.message)}</span>`;
+          html += `<button onclick="lintIgnoreError('${escapeAttr(err.nodeId)}', '${escapeAttr(err.errorType)}', '${escapeAttr(err.value)}')" style="background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: var(--font-size-xs); padding: 2px 6px; white-space: nowrap;" title="Ignore this error">Ignore</button>`;
+          html += `<button onclick="lintSelectAllWithValue('${escapeAttr(err.errorType)}', '${escapeAttr(err.value)}')" style="background: none; border: none; cursor: pointer; color: var(--interactive); font-size: var(--font-size-xs); padding: 2px 6px; white-space: nowrap;" title="Select all layers with this value">Select All</button>`;
+          html += `</div>`;
+        }
+
+        html += `</div>`;
+      }
+
+      container.innerHTML = html;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function escapeAttr(str) {
+      return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+    }
+
+    function lintSelectNode(nodeId) {
+      parent.postMessage({ pluginMessage: { type: 'lint-select-node', data: { nodeId } } }, '*');
+    }
+
+    function lintIgnoreNode(nodeId) {
+      parent.postMessage({ pluginMessage: { type: 'lint-ignore-node', data: { nodeId } } }, '*');
+    }
+
+    function lintIgnoreError(nodeId, errorType, value) {
+      parent.postMessage({ pluginMessage: { type: 'lint-ignore-error', data: { nodeId, errorType, value } } }, '*');
+    }
+
+    function lintSelectAllWithValue(errorType, value) {
+      parent.postMessage({ pluginMessage: { type: 'lint-select-all-with-value', data: { errorType, value } } }, '*');
+    }
 
     // Initialize when DOM is loaded
     if (document.readyState === 'loading') {

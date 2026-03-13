@@ -196,7 +196,31 @@ export type UIMessageType =
   | 'apply-naming-fix'
   | 'apply-batch-fix'
   | 'update-description'
-  | 'add-component-property';
+  | 'add-component-property'
+  // Design Lint message types (deterministic, no AI)
+  | 'run-design-lint'
+  | 'lint-ignore-node'
+  | 'lint-ignore-error'
+  | 'lint-ignore-all-of-type'
+  | 'lint-clear-ignored'
+  | 'lint-select-node'
+  | 'lint-select-all-with-value'
+  | 'lint-save-settings'
+  | 'lint-load-settings'
+  | 'lint-save-team-config'
+  | 'lint-load-team-config'
+  // Chat UI message types
+  | 'jump-to-node'
+  | 'fix-spacing'
+  | 'fix-spacing-to-nearest'
+  | 'fix-all-spacing'
+  | 'apply-style-fix'
+  | 'rename-layer-fix'
+  | 'fix-radius-to-nearest'
+  | 'batch-fix-v2'
+  | 'rescan-lint'
+  | 'export-screenshot'
+  | 'analyze-flow';
 
 // Auto-fix Types
 export interface FixRequest {
@@ -228,6 +252,8 @@ export interface EnhancedAnalysisOptions {
   node?: SceneNode;
   mcpServerUrl?: string;
   useMCP?: boolean;
+  /** User's lint settings — if omitted, DEFAULT_LINT_SETTINGS is used */
+  lintSettings?: LintSettings;
 }
 
 export interface AuditCheck {
@@ -242,6 +268,8 @@ export interface DetailedAuditResults {
   componentReadiness: AuditCheck[];
   /** Real WCAG-informed accessibility checks (contrast, touch targets, focus state, font size) */
   accessibility: AuditCheck[];
+  /** Deterministic lint findings (fills, strokes, effects, text, radius) */
+  designLint?: AuditCheck[];
 }
 
 export interface EnhancedAnalysisResult {
@@ -252,6 +280,33 @@ export interface EnhancedAnalysisResult {
   recommendations?: Array<{ name: string; type: string; description: string; examples: string[] }>;
   namingIssues?: NamingIssue[];
   existingDescription?: string;
+  /** Lint errors from deterministic analysis, grouped by type */
+  lintResult?: LintResult;
+  /** AI-generated review summary based on combined lint + analysis (CodeRabbit-style) */
+  designReview?: DesignReviewSummary;
+}
+
+export interface DesignReviewSummary {
+  /** Overall verdict: pass, warn, fail */
+  verdict: 'pass' | 'warn' | 'fail';
+  /** One-line summary */
+  headline: string;
+  /** Grouped findings by severity */
+  findings: DesignReviewFinding[];
+  /** AI-generated actionable next steps */
+  nextSteps: string[];
+}
+
+export type DesignReviewSeverity = 'critical' | 'warning' | 'info' | 'suggestion';
+
+export interface DesignReviewFinding {
+  severity: DesignReviewSeverity;
+  category: string;
+  title: string;
+  description: string;
+  nodeId?: string;
+  nodeName?: string;
+  autoFixable: boolean;
 }
 
 // Re-export NamingIssue shape for use in UI messages
@@ -312,6 +367,76 @@ export interface BatchAnalysisResult {
 // Export utility types
 export type ValidNodeType = 'FRAME' | 'COMPONENT' | 'COMPONENT_SET' | 'INSTANCE' | 'GROUP';
 export type TokenCategory = 'colors' | 'spacing' | 'typography' | 'effects' | 'borders';
+
+// ──────────────────────────────────────────────
+// Design Lint Types (deterministic, non-AI rules)
+// ──────────────────────────────────────────────
+
+export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy';
+
+export interface LintError {
+  nodeId: string;
+  nodeName: string;
+  nodeType: string;
+  errorType: LintErrorType;
+  message: string;
+  value: string;
+  path: string;
+  /** Spacing property name (for spacing errors), enables direct fix without parsing message text */
+  property?: string;
+  /** Severity level for weighted scoring */
+  severity?: 'critical' | 'warning' | 'info';
+}
+
+export interface LintResult {
+  errors: LintError[];
+  ignoredNodeIds: string[];
+  ignoredErrorKeys: string[];
+  summary: LintSummary;
+}
+
+export interface LintSummary {
+  totalErrors: number;
+  byType: Record<LintErrorType, number>;
+  totalNodes: number;
+  nodesWithErrors: number;
+}
+
+export interface LintSettings {
+  checkFills: boolean;
+  checkStrokes: boolean;
+  checkEffects: boolean;
+  checkTextStyles: boolean;
+  checkRadius: boolean;
+  checkSpacing: boolean;
+  checkAutoLayout: boolean;
+  checkAccessibility: boolean;
+  checkVisualQuality: boolean;
+  checkMicrocopy: boolean;
+  allowedRadii: number[];
+  skipLockedLayers: boolean;
+  skipHiddenLayers: boolean;
+  /** Custom spacing scale (overrides default 4px/8px grid) */
+  spacingScale?: number[];
+  /** Per-rule severity overrides (set to 'off' to disable a rule) */
+  severityOverrides?: Partial<Record<LintErrorType, 'critical' | 'warning' | 'info' | 'off'>>;
+  /** Layer name glob patterns to ignore during linting */
+  ignorePatterns?: string[];
+}
+
+/**
+ * Team-shared config stored via figma.root.setSharedPluginData.
+ * Visible to all editors of the Figma file.
+ */
+export interface TeamLintConfig {
+  version: 1;
+  scales: {
+    radius: number[];
+    spacing: number[];
+  };
+  severityOverrides: Partial<Record<LintErrorType, 'critical' | 'warning' | 'info' | 'off'>>;
+  ignorePatterns: string[];
+}
 
 // Chat Types
 export interface ChatMessage {

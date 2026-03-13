@@ -4,7 +4,7 @@ import { PluginMessage, UIMessageType, EnhancedAnalysisOptions, ChatMessage, Cha
 import { sendMessageToUI, isValidNodeForAnalysis } from '../utils/figma-helpers';
 import { processEnhancedAnalysis, processAnalysisResult, extractComponentContext } from '../core/component-analyzer';
 import { extractDesignTokensFromNode } from '../core/token-analyzer';
-import { extractJSONFromResponse, createEnhancedMetadataPrompt, filterDevelopmentRecommendations } from '../api/claude';
+import { extractJSONFromResponse, filterDevelopmentRecommendations } from '../api/claude';
 import ComponentConsistencyEngine from '../core/consistency-engine';
 import {
   ProviderId,
@@ -13,8 +13,6 @@ import {
   loadProviderConfig,
   saveProviderConfig,
   clearProviderKey,
-  STORAGE_KEYS,
-  DEFAULTS,
   migrateLegacyStorage,
 } from '../api/providers';
 import {
@@ -22,23 +20,32 @@ import {
   applyColorFix,
   applySpacingFix,
   findMatchingColorVariable,
-  findMatchingSpacingVariable,
   findBestMatchingVariable,
-  suggestSemanticTokenName,
   FixPreview,
   FixResult,
 } from '../fixes/token-fixer';
 import {
   previewRename,
   renameLayer,
-  batchRename,
   suggestLayerName,
-  analyzeNamingIssues,
-  getNamingIssueSummary,
-  NamingStrategy,
   RenamePreview,
 } from '../fixes/naming-fixer';
-import { FixRequest, FixPreviewRequest, BatchFixRequest } from '../types';
+import { FixRequest, FixPreviewRequest, BatchFixRequest, LintSettings } from '../types';
+import { exportScreenshot } from '../extract/screenshot';
+import { buildFlowGraph, analyzeFlowGraph } from '../flow/graph-builder';
+import { fixSpacingToNearest, fixAllSpacingOnNode } from '../fix/fix-spacing';
+import { fixRadiusToNearest } from '../fix/fix-radius';
+import { renameLayerById } from '../fix/rename-layer';
+import { executeBatchFix, type BatchFixAction } from '../fix/batch';
+import {
+  lintSelection,
+  ignoreNode,
+  ignoreError,
+  ignoreAllOfType,
+  clearIgnored,
+  findNodesWithSameValue,
+  DEFAULT_LINT_SETTINGS,
+} from '../core/design-lint';
 
 // Plugin state
 let storedApiKey: string | null = null;
@@ -126,6 +133,74 @@ export async function handleUIMessage(msg: PluginMessage): Promise<void> {
         break;
       case 'add-component-property':
         await handleAddComponentProperty(data);
+        break;
+      // Design Lint handlers (deterministic, no AI)
+      case 'run-design-lint':
+        handleRunDesignLint(data);
+        break;
+      case 'lint-ignore-node':
+        handleLintIgnoreNode(data);
+        break;
+      case 'lint-ignore-error':
+        handleLintIgnoreError(data);
+        break;
+      case 'lint-ignore-all-of-type':
+        handleLintIgnoreAllOfType(data);
+        break;
+      case 'lint-clear-ignored':
+        handleLintClearIgnored();
+        break;
+      case 'lint-select-node':
+        handleLintSelectNode(data);
+        break;
+      case 'lint-select-all-with-value':
+        handleLintSelectAllWithValue(data);
+        break;
+      case 'lint-save-settings':
+        handleLintSaveSettings(data);
+        break;
+      case 'lint-load-settings':
+        handleLintLoadSettings();
+        break;
+      case 'lint-save-team-config':
+        handleSaveTeamConfig(data);
+        break;
+      case 'lint-load-team-config':
+        handleLoadTeamConfig();
+        break;
+      // Chat UI handlers
+      case 'jump-to-node':
+        handleJumpToNode(data);
+        break;
+      case 'fix-spacing':
+        handleFixSpacing(data);
+        break;
+      case 'fix-spacing-to-nearest':
+        handleFixSpacingToNearest(data);
+        break;
+      case 'fix-all-spacing':
+        handleFixAllSpacing(data);
+        break;
+      case 'apply-style-fix':
+        await handleApplyStyleFix(data);
+        break;
+      case 'rename-layer-fix':
+        handleRenameLayerFix(data);
+        break;
+      case 'fix-radius-to-nearest':
+        handleFixRadiusToNearest(data);
+        break;
+      case 'batch-fix-v2':
+        await handleBatchFixV2(data);
+        break;
+      case 'rescan-lint':
+        handleRescanLint();
+        break;
+      case 'export-screenshot':
+        await handleExportScreenshot(data);
+        break;
+      case 'analyze-flow':
+        await handleAnalyzeFlow();
         break;
       default:
         console.warn('Unknown message type:', type);
@@ -259,8 +334,6 @@ async function handleEnhancedAnalyze(options: EnhancedAnalysisOptions): Promise<
 
     // Single component analysis
     let selectedNode = selection[0];
-    const originalSelectedNode = selectedNode; // Keep track of the original selection
-
     // Handle instances
     if (selectedNode.type === 'INSTANCE') {
       const instance = selectedNode as InstanceNode;
@@ -628,7 +701,6 @@ function isNodeOnCurrentPage(node: BaseNode): boolean {
 
     // For component instances and other special cases,
     // check if any page contains this node
-    const allPages = figma.root.children.filter(child => child.type === 'PAGE');
     const currentPage = figma.currentPage;
 
     // If this is a component or component set, it might be in the current page
@@ -897,6 +969,442 @@ ${hasComponentContext ?
   'If the user wants component-specific advice, suggest they select and analyze a component in Figma first.'}
 
 Respond naturally and helpfully to the user's question.`;
+}
+
+// ──────────────────────────────────────────────
+// Design Lint Handlers (deterministic, no AI)
+// ──────────────────────────────────────────────
+
+let currentLintSettings: LintSettings = { ...DEFAULT_LINT_SETTINGS };
+
+function handleRunDesignLint(data?: any): void {
+  const settings = data?.settings || currentLintSettings;
+  const result = lintSelection(settings);
+  sendMessageToUI('design-lint-result', result);
+}
+
+function handleLintIgnoreNode(data: { nodeId: string }): void {
+  ignoreNode(data.nodeId);
+  // Re-run lint to update results
+  handleRunDesignLint();
+}
+
+function handleLintIgnoreError(data: { nodeId: string; errorType: string; value?: string }): void {
+  ignoreError(data.nodeId, data.errorType as any, data.value);
+  handleRunDesignLint();
+}
+
+function handleLintIgnoreAllOfType(data: { errorType: string }): void {
+  // Get current results first, then ignore all matching
+  const result = lintSelection(currentLintSettings);
+  ignoreAllOfType(result.errors, data.errorType as any);
+  handleRunDesignLint();
+}
+
+function handleLintClearIgnored(): void {
+  clearIgnored();
+  handleRunDesignLint();
+}
+
+function handleLintSelectNode(data: { nodeId: string }): void {
+  try {
+    const node = figma.getNodeById(data.nodeId);
+    if (node && node.type !== 'DOCUMENT' && node.type !== 'PAGE') {
+      figma.currentPage.selection = [node as SceneNode];
+      figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
+    }
+  } catch (error) {
+    console.warn('Could not select node:', data.nodeId, error);
+  }
+}
+
+function handleLintSelectAllWithValue(data: { errorType: string; value: string }): void {
+  const selection = figma.currentPage.selection;
+  if (selection.length === 0) return;
+
+  const matching = findNodesWithSameValue(selection, data.errorType as any, data.value, currentLintSettings);
+  const nodeIds = [...new Set(matching.map(e => e.nodeId))];
+  const nodes = nodeIds
+    .map(id => figma.getNodeById(id))
+    .filter((n): n is SceneNode => n !== null && n.type !== 'DOCUMENT' && n.type !== 'PAGE');
+
+  if (nodes.length > 0) {
+    figma.currentPage.selection = nodes;
+    figma.viewport.scrollAndZoomIntoView(nodes);
+    sendMessageToUI('lint-selected-nodes', { count: nodes.length, value: data.value });
+  }
+}
+
+async function handleLintSaveSettings(data: { settings: LintSettings }): Promise<void> {
+  currentLintSettings = data.settings;
+  try {
+    await figma.clientStorage.setAsync('design-lint-settings', data.settings);
+  } catch (error) {
+    console.warn('Could not save lint settings:', error);
+  }
+}
+
+async function handleLintLoadSettings(): Promise<void> {
+  try {
+    const saved = await figma.clientStorage.getAsync('design-lint-settings');
+    if (saved) {
+      currentLintSettings = { ...DEFAULT_LINT_SETTINGS, ...saved };
+    }
+    sendMessageToUI('lint-settings-loaded', currentLintSettings);
+  } catch (error) {
+    console.warn('Could not load lint settings:', error);
+    sendMessageToUI('lint-settings-loaded', DEFAULT_LINT_SETTINGS);
+  }
+}
+
+// ──────────────────────────────────────────────
+// Team Config Handlers (shared plugin data)
+// ──────────────────────────────────────────────
+
+function handleSaveTeamConfig(data: { config: any }): void {
+  try {
+    const config = data.config;
+    if (!config || config.version !== 1) {
+      sendMessageToUI('team-config-saved', { success: false, error: 'Invalid config version' });
+      return;
+    }
+    figma.root.setSharedPluginData('figmalint', 'config', JSON.stringify(config));
+    sendMessageToUI('team-config-saved', { success: true });
+  } catch (error) {
+    sendMessageToUI('team-config-saved', { success: false, error: String(error) });
+  }
+}
+
+function handleLoadTeamConfig(): void {
+  try {
+    const raw = figma.root.getSharedPluginData('figmalint', 'config');
+    if (raw) {
+      const config = JSON.parse(raw);
+      // Merge team config into current lint settings
+      if (config.scales?.spacing) {
+        currentLintSettings.spacingScale = config.scales.spacing;
+      }
+      if (config.scales?.radius) {
+        currentLintSettings.allowedRadii = config.scales.radius;
+      }
+      if (config.severityOverrides) {
+        currentLintSettings.severityOverrides = config.severityOverrides;
+      }
+      if (config.ignorePatterns) {
+        currentLintSettings.ignorePatterns = config.ignorePatterns;
+      }
+      sendMessageToUI('team-config-loaded', { config, settings: currentLintSettings });
+    } else {
+      sendMessageToUI('team-config-loaded', { config: null, settings: currentLintSettings });
+    }
+  } catch (error) {
+    console.warn('Could not load team config:', error);
+    sendMessageToUI('team-config-loaded', { config: null, settings: currentLintSettings });
+  }
+}
+
+// ──────────────────────────────────────────────
+// Chat UI Handlers
+// ──────────────────────────────────────────────
+
+function handleJumpToNode(data: { nodeId: string }): void {
+  try {
+    const node = figma.getNodeById(data.nodeId);
+    if (node && node.type !== 'DOCUMENT' && node.type !== 'PAGE') {
+      figma.currentPage.selection = [node as SceneNode];
+      figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
+    }
+  } catch (error) {
+    console.warn('Could not jump to node:', data.nodeId, error);
+  }
+}
+
+const ALLOWED_SPACING_PROPERTIES = new Set([
+  'itemSpacing', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight', 'counterAxisSpacing',
+]);
+
+function handleFixSpacing(data: { nodeId: string; property: string; value: number }): void {
+  try {
+    if (!ALLOWED_SPACING_PROPERTIES.has(data.property)) {
+      sendMessageToUI('fix-error', { error: `Invalid spacing property: ${data.property}` });
+      return;
+    }
+
+    const node = figma.getNodeById(data.nodeId) as FrameNode;
+    if (node && (node.type === 'FRAME' || node.type === 'COMPONENT' || node.type === 'INSTANCE')) {
+      const oldValue = (node as any)[data.property];
+      (node as any)[data.property] = data.value;
+      sendMessageToUI('fix-applied', {
+        type: 'spacing',
+        nodeId: data.nodeId,
+        nodeName: node.name,
+        property: data.property,
+        oldValue,
+        newValue: data.value,
+      });
+    }
+  } catch (error) {
+    console.warn('Could not fix spacing:', error);
+    sendMessageToUI('fix-error', { error: 'Failed to apply spacing fix' });
+  }
+}
+
+async function handleExportScreenshot(data: { nodeId?: string }): Promise<void> {
+  try {
+    let node: SceneNode | null = null;
+    if (data?.nodeId) {
+      const found = figma.getNodeById(data.nodeId);
+      if (found && found.type !== 'DOCUMENT' && found.type !== 'PAGE') {
+        node = found as SceneNode;
+      }
+    } else if (figma.currentPage.selection.length > 0) {
+      node = figma.currentPage.selection[0];
+    }
+
+    if (!node) {
+      sendMessageToUI('screenshot-error', { error: 'No node selected' });
+      return;
+    }
+
+    const base64 = await exportScreenshot(node);
+    sendMessageToUI('screenshot-result', {
+      nodeId: node.id,
+      nodeName: node.name,
+      screenshot: base64,
+      width: node.width,
+      height: node.height,
+    });
+  } catch (error) {
+    console.warn('Could not export screenshot:', error);
+    sendMessageToUI('screenshot-error', { error: 'Failed to export screenshot' });
+  }
+}
+
+function handleFixSpacingToNearest(data: { nodeId: string; property: string }): void {
+  try {
+    const result = fixSpacingToNearest(
+      data.nodeId,
+      data.property as 'itemSpacing' | 'paddingTop' | 'paddingBottom' | 'paddingLeft' | 'paddingRight' | 'counterAxisSpacing'
+    );
+    sendMessageToUI('fix-applied', {
+      type: 'spacing',
+      nodeId: result.nodeId,
+      nodeName: result.nodeName,
+      property: data.property,
+      oldValue: result.oldValue,
+      newValue: result.newValue,
+      success: result.success,
+      error: result.error,
+    });
+  } catch (error) {
+    sendMessageToUI('fix-error', { error: 'Failed to auto-fix spacing' });
+  }
+}
+
+function handleFixRadiusToNearest(data: { nodeId: string; allowedRadii?: number[] }): void {
+  try {
+    const allowedRadii = data.allowedRadii || [0, 2, 4, 8, 12, 16, 20, 24, 32];
+    const result = fixRadiusToNearest(data.nodeId, allowedRadii);
+    sendMessageToUI('fix-applied', {
+      type: 'radius',
+      nodeId: result.nodeId,
+      nodeName: result.nodeName,
+      oldValue: result.oldValue,
+      newValue: result.newValue,
+      success: result.success,
+      error: result.error,
+    });
+  } catch (error) {
+    sendMessageToUI('fix-error', { error: 'Failed to auto-fix radius' });
+  }
+}
+
+function handleFixAllSpacing(data: { nodeId: string }): void {
+  try {
+    const results = fixAllSpacingOnNode(data.nodeId);
+    const applied = results.filter(r => r.success).length;
+
+    for (const result of results) {
+      sendMessageToUI('fix-applied', {
+        type: 'spacing',
+        nodeId: result.nodeId,
+        nodeName: result.nodeName,
+        property: result.property,
+        oldValue: result.oldValue,
+        newValue: result.newValue,
+        success: result.success,
+      });
+    }
+
+    if (applied > 0) {
+      figma.notify(`Fixed ${applied} spacing value${applied !== 1 ? 's' : ''}`, { timeout: 2000 });
+    }
+  } catch (error) {
+    sendMessageToUI('fix-error', { error: 'Failed to fix all spacing' });
+  }
+}
+
+async function handleApplyStyleFix(data: { nodeId: string; styleType: string; styleKey: string }): Promise<void> {
+  try {
+    const { applyFillStyle, applyStrokeStyle, applyTextStyle, applyEffectStyle } = await import('../fix/apply-style');
+
+    let result;
+    switch (data.styleType) {
+      case 'fill':
+        result = await applyFillStyle(data.nodeId, data.styleKey);
+        break;
+      case 'stroke':
+        result = await applyStrokeStyle(data.nodeId, data.styleKey);
+        break;
+      case 'text':
+        result = await applyTextStyle(data.nodeId, data.styleKey);
+        break;
+      case 'effect':
+        result = await applyEffectStyle(data.nodeId, data.styleKey);
+        break;
+      default:
+        sendMessageToUI('fix-error', { error: `Unknown style type: ${data.styleType}` });
+        return;
+    }
+
+    sendMessageToUI('fix-applied', {
+      type: 'style',
+      nodeId: result.nodeId,
+      nodeName: result.nodeName,
+      property: result.property,
+      oldValue: result.oldValue,
+      newValue: result.newValue,
+      success: result.success,
+      error: result.error,
+    });
+  } catch (error) {
+    sendMessageToUI('fix-error', { error: 'Failed to apply style' });
+  }
+}
+
+function handleRenameLayerFix(data: { nodeId: string; newName: string }): void {
+  try {
+    const result = renameLayerById(data.nodeId, data.newName);
+    sendMessageToUI('fix-applied', {
+      type: 'rename',
+      nodeId: result.nodeId,
+      nodeName: result.newName,
+      oldValue: result.oldName,
+      newValue: result.newName,
+      success: result.success,
+      error: result.error,
+    });
+  } catch (error) {
+    sendMessageToUI('fix-error', { error: 'Failed to rename layer' });
+  }
+}
+
+async function handleBatchFixV2(data: { fixes: BatchFixAction[] }): Promise<void> {
+  try {
+    const summary = await executeBatchFix(data.fixes);
+
+    sendMessageToUI('batch-fix-v2-result', summary);
+
+    if (summary.failed === 0) {
+      figma.notify(`Applied ${summary.applied} fix${summary.applied !== 1 ? 'es' : ''} successfully`, { timeout: 2000 });
+    } else if (summary.applied > 0) {
+      figma.notify(`Applied ${summary.applied}, ${summary.failed} failed`, { timeout: 3000 });
+    } else {
+      figma.notify(`All ${summary.failed} fixes failed`, { error: true });
+    }
+
+    // Auto re-scan after batch fix
+    handleRescanLint();
+  } catch (error) {
+    sendMessageToUI('fix-error', { error: 'Batch fix failed' });
+  }
+}
+
+function handleRescanLint(): void {
+  const result = lintSelection(currentLintSettings);
+  sendMessageToUI('design-lint-result', result);
+  sendMessageToUI('rescan-complete', {
+    totalErrors: result.summary.totalErrors,
+    nodesWithErrors: result.summary.nodesWithErrors,
+  });
+}
+
+/**
+ * Analyze the current page as a user flow.
+ * Builds navigation graph from prototype reactions,
+ * captures per-frame screenshots + lint, and sends to UI.
+ */
+async function handleAnalyzeFlow(): Promise<void> {
+  try {
+    sendMessageToUI('flow-analysis-started', { status: 'building-graph' });
+
+    // 1. Build the flow graph
+    const graph = buildFlowGraph();
+
+    if (graph.frames.length === 0) {
+      sendMessageToUI('flow-analysis-error', { error: 'No top-level frames found on current page.' });
+      return;
+    }
+
+    if (graph.frames.length > 50) {
+      sendMessageToUI('flow-analysis-error', { error: `Too many frames (${graph.frames.length}). Select a page with ≤50 frames for flow analysis.` });
+      return;
+    }
+
+    // 2. Deterministic graph issues
+    const graphIssues = analyzeFlowGraph(graph);
+
+    sendMessageToUI('flow-analysis-started', { status: 'capturing-screenshots', total: graph.frames.length });
+
+    // 3. Capture screenshots + lint per frame (in batches of 10)
+    const screenshots: Record<string, string> = {};
+    const lintResults: Record<string, any> = {};
+    const BATCH_SIZE = 10;
+
+    for (let i = 0; i < graph.frames.length; i += BATCH_SIZE) {
+      const batch = graph.frames.slice(i, i + BATCH_SIZE);
+      const promises = batch.map(async (frame) => {
+        const node = await figma.getNodeByIdAsync(frame.id);
+        if (!node || !('exportAsync' in node)) return;
+
+        // Screenshot
+        try {
+          const screenshot = await exportScreenshot(node as SceneNode);
+          screenshots[frame.id] = screenshot;
+        } catch {
+          // Non-critical — skip screenshot
+        }
+
+        // Lint
+        try {
+          const { runDesignLint } = await import('../core/design-lint');
+          const result = runDesignLint([node as SceneNode], currentLintSettings);
+          lintResults[frame.id] = result;
+        } catch {
+          // Non-critical
+        }
+      });
+      await Promise.all(promises);
+
+      sendMessageToUI('flow-analysis-started', {
+        status: 'capturing-screenshots',
+        progress: Math.min(i + BATCH_SIZE, graph.frames.length),
+        total: graph.frames.length,
+      });
+    }
+
+    // 4. Send results to UI
+    sendMessageToUI('flow-analysis-result', {
+      graph,
+      graphIssues,
+      screenshots,
+      lintResults,
+    });
+
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('flow-analysis-error', { error: msg });
+  }
 }
 
 /**
@@ -1277,7 +1785,6 @@ async function handleApplyBatchFix(data: BatchFixRequest): Promise<void> {
             message: success
               ? `Renamed "${oldName}" to "${newName}"`
               : 'Failed to rename layer',
-            newName: success ? newName : oldName
           });
 
           if (success) {

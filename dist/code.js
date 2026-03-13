@@ -3,6 +3,7 @@
   var __defProp = Object.defineProperty;
   var __defProps = Object.defineProperties;
   var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
   var __getOwnPropSymbols = Object.getOwnPropertySymbols;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
   var __propIsEnum = Object.prototype.propertyIsEnumerable;
@@ -19,6 +20,144 @@
     return a;
   };
   var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+  var __esm = (fn, res) => function __init() {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  };
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+
+  // src/fix/apply-style.ts
+  var apply_style_exports = {};
+  __export(apply_style_exports, {
+    applyEffectStyle: () => applyEffectStyle,
+    applyFillStyle: () => applyFillStyle,
+    applyStrokeStyle: () => applyStrokeStyle,
+    applyTextStyle: () => applyTextStyle
+  });
+  async function applyFillStyle(nodeId, styleKey) {
+    const node = figma.getNodeById(nodeId);
+    if (!node || !("fillStyleId" in node)) {
+      return { success: false, nodeId, nodeName: "", property: "fillStyle", oldValue: "", newValue: "", error: "Node not found or does not support fill styles" };
+    }
+    try {
+      const style = await figma.importStyleByKeyAsync(styleKey);
+      const oldStyleId = node.fillStyleId || "";
+      node.fillStyleId = style.id;
+      return {
+        success: true,
+        nodeId,
+        nodeName: node.name,
+        property: "fillStyle",
+        oldValue: oldStyleId ? "existing style" : "no style",
+        newValue: style.name
+      };
+    } catch (error) {
+      return {
+        success: false,
+        nodeId,
+        nodeName: node.name,
+        property: "fillStyle",
+        oldValue: "",
+        newValue: styleKey,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+  async function applyStrokeStyle(nodeId, styleKey) {
+    const node = figma.getNodeById(nodeId);
+    if (!node || !("strokeStyleId" in node)) {
+      return { success: false, nodeId, nodeName: "", property: "strokeStyle", oldValue: "", newValue: "", error: "Node not found or does not support stroke styles" };
+    }
+    try {
+      const style = await figma.importStyleByKeyAsync(styleKey);
+      const oldStyleId = node.strokeStyleId || "";
+      node.strokeStyleId = style.id;
+      return {
+        success: true,
+        nodeId,
+        nodeName: node.name,
+        property: "strokeStyle",
+        oldValue: oldStyleId ? "existing style" : "no style",
+        newValue: style.name
+      };
+    } catch (error) {
+      return {
+        success: false,
+        nodeId,
+        nodeName: node.name,
+        property: "strokeStyle",
+        oldValue: "",
+        newValue: styleKey,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+  async function applyTextStyle(nodeId, styleKey) {
+    const node = figma.getNodeById(nodeId);
+    if (!node || node.type !== "TEXT") {
+      return { success: false, nodeId, nodeName: "", property: "textStyle", oldValue: "", newValue: "", error: "Node not found or is not a text node" };
+    }
+    try {
+      const style = await figma.importStyleByKeyAsync(styleKey);
+      const textNode = node;
+      const oldStyleId = textNode.textStyleId || "";
+      textNode.textStyleId = style.id;
+      return {
+        success: true,
+        nodeId,
+        nodeName: node.name,
+        property: "textStyle",
+        oldValue: oldStyleId ? "existing style" : "no style",
+        newValue: style.name
+      };
+    } catch (error) {
+      return {
+        success: false,
+        nodeId,
+        nodeName: node.name,
+        property: "textStyle",
+        oldValue: "",
+        newValue: styleKey,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+  async function applyEffectStyle(nodeId, styleKey) {
+    const node = figma.getNodeById(nodeId);
+    if (!node || !("effectStyleId" in node)) {
+      return { success: false, nodeId, nodeName: "", property: "effectStyle", oldValue: "", newValue: "", error: "Node not found or does not support effect styles" };
+    }
+    try {
+      const style = await figma.importStyleByKeyAsync(styleKey);
+      const oldStyleId = node.effectStyleId || "";
+      node.effectStyleId = style.id;
+      return {
+        success: true,
+        nodeId,
+        nodeName: node.name,
+        property: "effectStyle",
+        oldValue: oldStyleId ? "existing style" : "no style",
+        newValue: style.name
+      };
+    } catch (error) {
+      return {
+        success: false,
+        nodeId,
+        nodeName: node.name,
+        property: "effectStyle",
+        oldValue: "",
+        newValue: styleKey,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+  var init_apply_style = __esm({
+    "src/fix/apply-style.ts"() {
+      "use strict";
+    }
+  });
 
   // src/utils/figma-helpers.ts
   function isValidNodeForAnalysis(node) {
@@ -2642,6 +2781,519 @@ Focus on creating a comprehensive DESIGN analysis that helps designers build sca
     return str.replace(/([a-z])([A-Z])/g, "$1-$2").replace(/[\s_]+/g, "-").replace(/[^a-zA-Z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase();
   }
 
+  // src/lint/types.ts
+  var SPACING_SCALE = [0, 2, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96];
+  function findClosestSpacingValues(value) {
+    if (SPACING_SCALE.includes(value)) return [];
+    const sorted = [...SPACING_SCALE].map((v) => ({ v, diff: Math.abs(v - value) })).sort((a, b) => a.diff - b.diff);
+    const closest = [];
+    for (const s of sorted) {
+      if (closest.length >= 2) break;
+      if (!closest.includes(s.v)) closest.push(s.v);
+    }
+    return closest.sort((a, b) => a - b);
+  }
+
+  // src/lint/spacing.ts
+  var issueCounter = 0;
+  function nextId() {
+    return `spacing-${++issueCounter}`;
+  }
+  function isValidSpacing(value) {
+    return SPACING_SCALE.includes(value);
+  }
+  function spacingLabel(property) {
+    const map = {
+      itemSpacing: "Gap",
+      paddingTop: "Padding Top",
+      paddingBottom: "Padding Bottom",
+      paddingLeft: "Padding Left",
+      paddingRight: "Padding Right",
+      counterAxisSpacing: "Counter-axis Gap"
+    };
+    return map[property] || property;
+  }
+  function checkFrameSpacing(node, issues) {
+    var _a;
+    if (node.layoutMode === "NONE") return 0;
+    let checked = 0;
+    const spacingProperties = [
+      { prop: "itemSpacing", value: node.itemSpacing },
+      { prop: "paddingTop", value: node.paddingTop },
+      { prop: "paddingBottom", value: node.paddingBottom },
+      { prop: "paddingLeft", value: node.paddingLeft },
+      { prop: "paddingRight", value: node.paddingRight }
+    ];
+    if ("counterAxisSpacing" in node && typeof node.counterAxisSpacing === "number") {
+      spacingProperties.push({
+        prop: "counterAxisSpacing",
+        value: node.counterAxisSpacing
+      });
+    }
+    for (const { prop, value } of spacingProperties) {
+      checked++;
+      if (!isValidSpacing(value)) {
+        const suggestions = findClosestSpacingValues(value);
+        issues.push({
+          id: nextId(),
+          type: "spacing",
+          severity: "warning",
+          nodeId: node.id,
+          nodeName: node.name,
+          message: `${spacingLabel(prop)} is ${value}px \u2014 not in spacing scale`,
+          currentValue: `${value}px`,
+          suggestions: suggestions.map((s) => `${s}px`),
+          autoFixable: true,
+          fixAction: {
+            type: "fixSpacing",
+            params: {
+              nodeId: node.id,
+              property: prop,
+              currentValue: value,
+              suggestedValue: (_a = suggestions[0]) != null ? _a : value
+            }
+          }
+        });
+      }
+    }
+    return checked;
+  }
+  function traverseForSpacing(node, issues, skipLocked, skipHidden, parentLocked) {
+    const isLocked = parentLocked || "locked" in node && node.locked;
+    const isHidden = "visible" in node && !node.visible;
+    if (skipLocked && isLocked) return { checked: 0, passed: 0 };
+    if (skipHidden && isHidden) return { checked: 0, passed: 0 };
+    let checked = 0;
+    let passed = 0;
+    if (node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE") {
+      const preLen = issues.length;
+      const count = checkFrameSpacing(node, issues);
+      checked += count;
+      passed += count - (issues.length - preLen);
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        const sub = traverseForSpacing(child, issues, skipLocked, skipHidden, isLocked);
+        checked += sub.checked;
+        passed += sub.passed;
+      }
+    }
+    return { checked, passed };
+  }
+  function checkSpacing(nodes, options = {}) {
+    const { skipLocked = true, skipHidden = true } = options;
+    issueCounter = 0;
+    const issues = [];
+    let totalChecked = 0;
+    let totalPassed = 0;
+    for (const node of nodes) {
+      const { checked, passed } = traverseForSpacing(node, issues, skipLocked, skipHidden, false);
+      totalChecked += checked;
+      totalPassed += passed;
+    }
+    return {
+      issues,
+      summary: {
+        totalChecked,
+        passed: totalPassed,
+        failed: issues.length
+      }
+    };
+  }
+
+  // src/lint/auto-layout.ts
+  var issueCounter2 = 0;
+  function nextId2() {
+    return `autolayout-${++issueCounter2}`;
+  }
+  function traverseForAutoLayout(node, issues, skipLocked, skipHidden, parentLocked) {
+    const isLocked = parentLocked || "locked" in node && node.locked;
+    const isHidden = "visible" in node && !node.visible;
+    if (skipLocked && isLocked) return { totalFrames: 0, withAutoLayout: 0 };
+    if (skipHidden && isHidden) return { totalFrames: 0, withAutoLayout: 0 };
+    let totalFrames = 0;
+    let withAutoLayout = 0;
+    const isFrameLike = node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE";
+    if (isFrameLike && "children" in node) {
+      const children = node.children;
+      if (children.length >= 2) {
+        totalFrames++;
+        const frameNode = node;
+        if (frameNode.layoutMode !== "NONE") {
+          withAutoLayout++;
+        } else {
+          issues.push({
+            id: nextId2(),
+            type: "autoLayout",
+            severity: "warning",
+            nodeId: node.id,
+            nodeName: node.name,
+            message: `Frame "${node.name}" has ${children.length} children but no Auto Layout`,
+            currentValue: "No Auto Layout",
+            suggestions: ["HORIZONTAL", "VERTICAL"],
+            autoFixable: false
+            // Converting to auto-layout can break designs
+          });
+        }
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        const sub = traverseForAutoLayout(child, issues, skipLocked, skipHidden, isLocked);
+        totalFrames += sub.totalFrames;
+        withAutoLayout += sub.withAutoLayout;
+      }
+    }
+    return { totalFrames, withAutoLayout };
+  }
+  function checkAutoLayout(nodes, options = {}) {
+    const { skipLocked = true, skipHidden = true } = options;
+    issueCounter2 = 0;
+    const issues = [];
+    let totalFrames = 0;
+    let withAutoLayout = 0;
+    for (const node of nodes) {
+      const sub = traverseForAutoLayout(node, issues, skipLocked, skipHidden, false);
+      totalFrames += sub.totalFrames;
+      withAutoLayout += sub.withAutoLayout;
+    }
+    const withoutAutoLayout = totalFrames - withAutoLayout;
+    const percentage = totalFrames > 0 ? Math.round(withAutoLayout / totalFrames * 100) : 100;
+    return {
+      issues,
+      summary: {
+        totalFrames,
+        withAutoLayout,
+        withoutAutoLayout,
+        percentage
+      }
+    };
+  }
+
+  // src/core/design-lint.ts
+  var DEFAULT_LINT_SETTINGS = {
+    checkFills: true,
+    checkStrokes: true,
+    checkEffects: true,
+    checkTextStyles: true,
+    checkRadius: true,
+    checkSpacing: true,
+    checkAutoLayout: true,
+    allowedRadii: [0, 2, 4, 8, 12, 16, 24, 32],
+    skipLockedLayers: true,
+    skipHiddenLayers: true
+  };
+  var ignoredNodeIds = /* @__PURE__ */ new Set();
+  var ignoredErrorKeys = /* @__PURE__ */ new Set();
+  function errorKey(nodeId, errorType) {
+    return `${nodeId}::${errorType}`;
+  }
+  function ignoreNode(nodeId) {
+    ignoredNodeIds.add(nodeId);
+  }
+  function ignoreError(nodeId, errorType) {
+    ignoredErrorKeys.add(errorKey(nodeId, errorType));
+  }
+  function ignoreAllOfType(errors, errorType) {
+    for (const err of errors) {
+      if (err.errorType === errorType) {
+        ignoredErrorKeys.add(errorKey(err.nodeId, err.errorType));
+      }
+    }
+  }
+  function clearIgnored() {
+    ignoredNodeIds.clear();
+    ignoredErrorKeys.clear();
+  }
+  function determineFill(paint) {
+    if (paint.type === "SOLID") {
+      const { r, g, b } = paint.color;
+      const hex = rgbToHex(r, g, b);
+      const opacity = paint.opacity !== void 0 && paint.opacity < 1 ? ` (${Math.round(paint.opacity * 100)}%)` : "";
+      return hex + opacity;
+    }
+    if (paint.type === "IMAGE") return "Image fill";
+    if (paint.type === "VIDEO") return "Video fill";
+    if (paint.type.includes("GRADIENT")) return `${paint.type.replace("GRADIENT_", "").toLowerCase()} gradient`;
+    return paint.type;
+  }
+  function hasBoundVariable(node, property) {
+    try {
+      if ("boundVariables" in node) {
+        const bound = node.boundVariables;
+        if (bound && bound[property]) return true;
+      }
+    } catch (e) {
+    }
+    return false;
+  }
+  function checkFills(node, errors, path) {
+    if (!("fills" in node)) return;
+    const fills = node.fills;
+    if (fills === figma.mixed || !Array.isArray(fills)) return;
+    const visibleFills = fills.filter((f) => f.visible !== false);
+    if (visibleFills.length === 0) return;
+    if (hasBoundVariable(node, "fills")) return;
+    if ("fillStyleId" in node) {
+      const styleId = node.fillStyleId;
+      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
+    }
+    for (const fill of visibleFills) {
+      const value = determineFill(fill);
+      errors.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        errorType: "fill",
+        message: `Missing fill style: ${value}`,
+        value,
+        path
+      });
+    }
+  }
+  function checkStrokes(node, errors, path) {
+    if (!("strokes" in node)) return;
+    const strokes = node.strokes;
+    if (!Array.isArray(strokes)) return;
+    const visibleStrokes = strokes.filter((s) => s.visible !== false);
+    if (visibleStrokes.length === 0) return;
+    if (hasBoundVariable(node, "strokes")) return;
+    if ("strokeStyleId" in node) {
+      const styleId = node.strokeStyleId;
+      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
+    }
+    for (const stroke of visibleStrokes) {
+      const value = determineFill(stroke);
+      const weight = "strokeWeight" in node ? ` (${node.strokeWeight}px)` : "";
+      errors.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        errorType: "stroke",
+        message: `Missing stroke style: ${value}${weight}`,
+        value: value + weight,
+        path
+      });
+    }
+  }
+  function checkEffects(node, errors, path) {
+    if (!("effects" in node)) return;
+    const effects = node.effects;
+    if (!Array.isArray(effects) || effects.length === 0) return;
+    const visibleEffects = effects.filter((e) => e.visible !== false);
+    if (visibleEffects.length === 0) return;
+    if ("effectStyleId" in node) {
+      const styleId = node.effectStyleId;
+      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
+    }
+    const descriptions = visibleEffects.map((e) => {
+      const parts = [e.type.replace(/_/g, " ").toLowerCase()];
+      if ("radius" in e) parts.push(`r:${e.radius}`);
+      if ("color" in e && e.color) {
+        const c = e.color;
+        parts.push(rgbToHex(c.r, c.g, c.b));
+      }
+      return parts.join(" ");
+    });
+    errors.push({
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      errorType: "effect",
+      message: `Missing effect style: ${descriptions.join(", ")}`,
+      value: descriptions.join(", "),
+      path
+    });
+  }
+  function checkTextStyle(node, errors, path) {
+    if ("textStyleId" in node) {
+      const styleId = node.textStyleId;
+      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
+    }
+    const fontName = node.fontName !== figma.mixed ? node.fontName : null;
+    const fontSize = node.fontSize !== figma.mixed ? node.fontSize : null;
+    const parts = [];
+    if (fontName) parts.push(`${fontName.family} ${fontName.style}`);
+    if (fontSize) parts.push(`${fontSize}px`);
+    const value = parts.join(" / ") || "unknown text style";
+    errors.push({
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      errorType: "text",
+      message: `Missing text style: ${value}`,
+      value,
+      path
+    });
+  }
+  function checkRadius(node, errors, path, allowedRadii) {
+    if (!("cornerRadius" in node)) return;
+    if (hasBoundVariable(node, "topLeftRadius") || hasBoundVariable(node, "cornerRadius")) return;
+    const cr = node.cornerRadius;
+    if (cr === figma.mixed) {
+      const corners = [
+        node.topLeftRadius,
+        node.topRightRadius,
+        node.bottomLeftRadius,
+        node.bottomRightRadius
+      ].filter((v) => v !== void 0 && v !== null);
+      for (const c of corners) {
+        if (!allowedRadii.includes(c)) {
+          errors.push({
+            nodeId: node.id,
+            nodeName: node.name,
+            nodeType: node.type,
+            errorType: "radius",
+            message: `Non-standard border radius: ${c}px (allowed: ${allowedRadii.join(", ")})`,
+            value: `${c}px`,
+            path
+          });
+          break;
+        }
+      }
+      return;
+    }
+    if (typeof cr === "number" && cr > 0 && !allowedRadii.includes(cr)) {
+      errors.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        errorType: "radius",
+        message: `Non-standard border radius: ${cr}px (allowed: ${allowedRadii.join(", ")})`,
+        value: `${cr}px`,
+        path
+      });
+    }
+  }
+  function lintNode(node, settings, errors, path) {
+    if (node.type === "GROUP" || node.type === "SLICE" || node.type === "CONNECTOR") return;
+    if (node.type === "COMPONENT_SET") return;
+    switch (node.type) {
+      case "TEXT":
+        if (settings.checkTextStyles) checkTextStyle(node, errors, path);
+        if (settings.checkFills) checkFills(node, errors, path);
+        break;
+      case "FRAME":
+      case "SECTION":
+        if (settings.checkFills) checkFills(node, errors, path);
+        if (settings.checkStrokes) checkStrokes(node, errors, path);
+        if (settings.checkEffects) checkEffects(node, errors, path);
+        if (settings.checkRadius) checkRadius(node, errors, path, settings.allowedRadii);
+        break;
+      case "RECTANGLE":
+      case "COMPONENT":
+      case "INSTANCE":
+        if (settings.checkFills) checkFills(node, errors, path);
+        if (settings.checkStrokes) checkStrokes(node, errors, path);
+        if (settings.checkEffects) checkEffects(node, errors, path);
+        if (settings.checkRadius) checkRadius(node, errors, path, settings.allowedRadii);
+        break;
+      case "ELLIPSE":
+      case "POLYGON":
+      case "STAR":
+      case "VECTOR":
+      case "LINE":
+      case "BOOLEAN_OPERATION":
+        if (settings.checkFills) checkFills(node, errors, path);
+        if (settings.checkStrokes) checkStrokes(node, errors, path);
+        if (settings.checkEffects) checkEffects(node, errors, path);
+        break;
+    }
+  }
+  function traverseAndLint(node, settings, errors, parentPath, parentLocked) {
+    let count = 0;
+    const isLocked = parentLocked || "locked" in node && node.locked;
+    const isHidden = "visible" in node && !node.visible;
+    if (settings.skipLockedLayers && isLocked) return 0;
+    if (settings.skipHiddenLayers && isHidden) return 0;
+    const path = parentPath ? `${parentPath} > ${node.name}` : node.name;
+    count++;
+    if (!ignoredNodeIds.has(node.id)) {
+      const preLen = errors.length;
+      lintNode(node, settings, errors, path);
+      for (let i = errors.length - 1; i >= preLen; i--) {
+        if (ignoredErrorKeys.has(errorKey(errors[i].nodeId, errors[i].errorType))) {
+          errors.splice(i, 1);
+        }
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        count += traverseAndLint(child, settings, errors, path, isLocked);
+      }
+    }
+    return count;
+  }
+  function runDesignLint(nodes, settings = DEFAULT_LINT_SETTINGS) {
+    const errors = [];
+    let totalNodes = 0;
+    for (const node of nodes) {
+      totalNodes += traverseAndLint(node, settings, errors, "", false);
+    }
+    const skipOpts = { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers };
+    if (settings.checkSpacing) {
+      const spacingResult = checkSpacing(nodes, skipOpts);
+      for (const issue of spacingResult.issues) {
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "spacing",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName
+        });
+      }
+    }
+    if (settings.checkAutoLayout) {
+      const autoLayoutResult = checkAutoLayout(nodes, skipOpts);
+      for (const issue of autoLayoutResult.issues) {
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "autoLayout",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName
+        });
+      }
+    }
+    const nodesWithErrors = new Set(errors.map((e) => e.nodeId)).size;
+    const byType = { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0 };
+    for (const err of errors) {
+      byType[err.errorType]++;
+    }
+    const summary = {
+      totalErrors: errors.length,
+      byType,
+      totalNodes,
+      nodesWithErrors
+    };
+    return {
+      errors,
+      ignoredNodeIds: Array.from(ignoredNodeIds),
+      ignoredErrorKeys: Array.from(ignoredErrorKeys),
+      summary
+    };
+  }
+  function lintSelection(settings) {
+    const selection = figma.currentPage.selection;
+    if (selection.length === 0) {
+      return {
+        errors: [],
+        ignoredNodeIds: [],
+        ignoredErrorKeys: [],
+        summary: { totalErrors: 0, byType: { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0 }, totalNodes: 0, nodesWithErrors: 0 }
+      };
+    }
+    return runDesignLint(selection, settings);
+  }
+  function findNodesWithSameValue(rootNodes, errorType, value, settings = DEFAULT_LINT_SETTINGS) {
+    const result = runDesignLint(rootNodes, settings);
+    return result.errors.filter((e) => e.errorType === errorType && e.value === value);
+  }
+
   // src/core/component-analyzer.ts
   async function extractComponentContext(node) {
     const hierarchy = extractLayerHierarchy(node);
@@ -3689,6 +4341,8 @@ Focus on creating a comprehensive DESIGN analysis that helps designers build sca
       }
     }
     context.existingDescription = componentDescription;
+    const lintResult = runDesignLint([node], DEFAULT_LINT_SETTINGS);
+    console.log(`\u{1F50D} [LINT] Deterministic lint: ${lintResult.summary.totalErrors} issues in ${lintResult.summary.nodesWithErrors} nodes`);
     console.log(`\u{1F4CA} [ANALYSIS] Extracted from Figma API:`);
     console.log(`  Properties: ${actualProperties.length}`);
     console.log(`  States: ${actualStates.length}`);
@@ -3699,7 +4353,7 @@ Focus on creating a comprehensive DESIGN analysis that helps designers build sca
     let analysisResult;
     if (useMCP) {
       console.log(`\u{1F504} Using hybrid LLM + MCP approach (${providerId})...`);
-      const llmPrompt = createFigmaDataExtractionPrompt(context, actualProperties, actualStates, tokens, componentDescription);
+      const llmPrompt = createFigmaDataExtractionPrompt(context, actualProperties, actualStates, tokens, componentDescription, lintResult);
       const llmResponse = await callProvider(providerId, apiKey, {
         prompt: llmPrompt,
         model,
@@ -3740,12 +4394,35 @@ Focus on creating a comprehensive DESIGN analysis that helps designers build sca
       }
     }
     const filteredData = filterDevelopmentRecommendations(analysisResult);
-    return await processAnalysisResult(filteredData, context, options);
+    return await processAnalysisResult(filteredData, context, options, lintResult, apiKey, model, providerId);
   }
-  function createFigmaDataExtractionPrompt(context, actualProperties, actualStates, tokens, componentDescription) {
+  function createFigmaDataExtractionPrompt(context, actualProperties, actualStates, tokens, componentDescription, lintResult) {
     var _a;
     const componentFamily = ((_a = context.additionalContext) == null ? void 0 : _a.componentFamily) || "generic";
     const nestedInstances = extractInstanceNames(context.hierarchy);
+    let lintSection = "";
+    if (lintResult && lintResult.summary.totalErrors > 0) {
+      const byType = lintResult.summary.byType;
+      const topErrors = lintResult.errors.slice(0, 15).map(
+        (e) => `  - [${e.errorType.toUpperCase()}] ${e.nodeName}: ${e.message}`
+      ).join("\n");
+      lintSection = `
+**Design Lint Findings (${lintResult.summary.totalErrors} issues):**
+- Missing fill styles: ${byType.fill || 0}
+- Missing stroke styles: ${byType.stroke || 0}
+- Missing effect styles: ${byType.effect || 0}
+- Missing text styles: ${byType.text || 0}
+- Non-standard border radius: ${byType.radius || 0}
+- Off-grid spacing: ${byType.spacing || 0}
+- Missing auto-layout: ${byType.autoLayout || 0}
+Top issues:
+${topErrors}
+`;
+    } else {
+      lintSection = `
+**Design Lint Findings:** All layers use proper design styles. No issues found.
+`;
+    }
     return `Analyze this Figma component and extract its structure and patterns.
 
 **Component Details:**
@@ -3766,7 +4443,7 @@ ${actualProperties.length > 10 ? `... and ${actualProperties.length - 10} more p
 - Actual tokens used: ${tokens.summary.actualTokens}
 - Hard-coded values: ${tokens.summary.hardCodedValues}
 - AI suggestions: ${tokens.summary.aiSuggestions}
-
+${lintSection}
 **Component Structure:**
 ${JSON.stringify(context.hierarchy.slice(0, 3), null, 2)}
 
@@ -3990,7 +4667,7 @@ Focus ONLY on what's actually in the Figma component for existing data. Recommen
     }
     return cheatSheet.slice(0, 5);
   }
-  async function processAnalysisResult(filteredData, context, options) {
+  async function processAnalysisResult(filteredData, context, options, lintResult, apiKey, model, providerId) {
     var _a;
     try {
       console.log("\u{1F504} Processing analysis result...");
@@ -4094,6 +4771,31 @@ Focus ONLY on what's actually in the Figma component for existing data. Recommen
       console.log(`\u{1F4A1} AI-generated property recommendations: ${recommendations.length}`);
       const namingIssues = analyzeNamingIssues(node, 5);
       console.log(`\u{1F4DB} Found ${namingIssues.length} naming issues`);
+      if (lintResult && lintResult.errors.length > 0) {
+        audit.designLint = lintErrorsToAuditChecks(lintResult);
+      }
+      let designReview;
+      if (apiKey && model && providerId) {
+        try {
+          designReview = await generateDesignReview(
+            context,
+            lintResult,
+            audit,
+            tokens,
+            namingIssues,
+            recommendations,
+            apiKey,
+            model,
+            providerId
+          );
+          console.log(`\u{1F4CB} Design review generated: ${designReview.verdict} \u2014 ${designReview.findings.length} findings`);
+        } catch (reviewError) {
+          console.warn("\u26A0\uFE0F Design review generation failed, continuing without it:", reviewError);
+          designReview = generateDeterministicReview(lintResult, audit, tokens, namingIssues);
+        }
+      } else {
+        designReview = generateDeterministicReview(lintResult, audit, tokens, namingIssues);
+      }
       console.log("\u2705 Analysis result processed successfully");
       return {
         metadata,
@@ -4102,12 +4804,252 @@ Focus ONLY on what's actually in the Figma component for existing data. Recommen
         properties: actualProperties,
         recommendations,
         namingIssues,
-        existingDescription: componentDescription
+        existingDescription: componentDescription,
+        lintResult,
+        designReview
       };
     } catch (error) {
       console.error("Error processing analysis result:", error);
       throw error;
     }
+  }
+  function lintErrorsToAuditChecks(lintResult) {
+    const checks = [];
+    const byType = lintResult.summary.byType;
+    if (byType.fill > 0) {
+      checks.push({
+        check: `Fill styles (${byType.fill} missing)`,
+        status: "fail",
+        suggestion: `${byType.fill} layer${byType.fill > 1 ? "s use" : " uses"} hard-coded fills instead of design styles`
+      });
+    } else {
+      checks.push({ check: "Fill styles", status: "pass", suggestion: "All fills use design styles" });
+    }
+    if (byType.stroke > 0) {
+      checks.push({
+        check: `Stroke styles (${byType.stroke} missing)`,
+        status: "fail",
+        suggestion: `${byType.stroke} layer${byType.stroke > 1 ? "s use" : " uses"} hard-coded strokes instead of design styles`
+      });
+    } else {
+      checks.push({ check: "Stroke styles", status: "pass", suggestion: "All strokes use design styles" });
+    }
+    if (byType.effect > 0) {
+      checks.push({
+        check: `Effect styles (${byType.effect} missing)`,
+        status: "fail",
+        suggestion: `${byType.effect} layer${byType.effect > 1 ? "s use" : " uses"} hard-coded effects instead of design styles`
+      });
+    } else {
+      checks.push({ check: "Effect styles", status: "pass", suggestion: "All effects use design styles" });
+    }
+    if (byType.text > 0) {
+      checks.push({
+        check: `Text styles (${byType.text} missing)`,
+        status: "fail",
+        suggestion: `${byType.text} text layer${byType.text > 1 ? "s lack" : " lacks"} applied text styles`
+      });
+    } else {
+      checks.push({ check: "Text styles", status: "pass", suggestion: "All text uses design styles" });
+    }
+    if (byType.radius > 0) {
+      checks.push({
+        check: `Border radius (${byType.radius} non-standard)`,
+        status: "warning",
+        suggestion: `${byType.radius} layer${byType.radius > 1 ? "s use" : " uses"} non-standard border radius values`
+      });
+    } else {
+      checks.push({ check: "Border radius", status: "pass", suggestion: "All radii match design system standards" });
+    }
+    if (byType.spacing > 0) {
+      checks.push({
+        check: `Spacing rhythm (${byType.spacing} off-grid)`,
+        status: "warning",
+        suggestion: `${byType.spacing} spacing value${byType.spacing > 1 ? "s are" : " is"} not on the 4/8px grid`
+      });
+    } else {
+      checks.push({ check: "Spacing rhythm", status: "pass", suggestion: "All spacing values follow the design grid" });
+    }
+    if (byType.autoLayout > 0) {
+      checks.push({
+        check: `Auto Layout (${byType.autoLayout} missing)`,
+        status: "warning",
+        suggestion: `${byType.autoLayout} frame${byType.autoLayout > 1 ? "s lack" : " lacks"} auto-layout`
+      });
+    } else {
+      checks.push({ check: "Auto Layout", status: "pass", suggestion: "All container frames use auto-layout" });
+    }
+    return checks;
+  }
+  function generateDeterministicReview(lintResult, audit, tokens, namingIssues) {
+    const findings = [];
+    if (lintResult) {
+      for (const err of lintResult.errors) {
+        findings.push({
+          severity: err.errorType === "radius" || err.errorType === "spacing" || err.errorType === "autoLayout" ? "warning" : "critical",
+          category: "Style Consistency",
+          title: err.message,
+          description: `Layer "${err.nodeName}" (${err.nodeType}) at ${err.path}`,
+          nodeId: err.nodeId,
+          nodeName: err.nodeName,
+          autoFixable: false
+        });
+      }
+    }
+    const hardCoded = tokens.summary.hardCodedValues;
+    if (hardCoded > 0) {
+      findings.push({
+        severity: "warning",
+        category: "Design Tokens",
+        title: `${hardCoded} hard-coded value${hardCoded > 1 ? "s" : ""} found`,
+        description: "These values should be replaced with design tokens for consistency across the design system.",
+        autoFixable: true
+      });
+    }
+    for (const check of audit.accessibility || []) {
+      if (check.status === "fail") {
+        findings.push({
+          severity: "critical",
+          category: "Accessibility",
+          title: check.check,
+          description: check.suggestion,
+          autoFixable: false
+        });
+      } else if (check.status === "warning") {
+        findings.push({
+          severity: "warning",
+          category: "Accessibility",
+          title: check.check,
+          description: check.suggestion,
+          autoFixable: false
+        });
+      }
+    }
+    for (const issue of namingIssues.slice(0, 10)) {
+      findings.push({
+        severity: issue.severity === "error" ? "warning" : "info",
+        category: "Naming",
+        title: `"${issue.currentName}" should be "${issue.suggestedName}"`,
+        description: issue.reason,
+        nodeId: issue.nodeId,
+        nodeName: issue.currentName,
+        autoFixable: true
+      });
+    }
+    for (const check of audit.componentReadiness || []) {
+      if (check.status === "fail") {
+        findings.push({
+          severity: "suggestion",
+          category: "Component Readiness",
+          title: check.check,
+          description: check.suggestion,
+          autoFixable: false
+        });
+      }
+    }
+    const missingStates = (audit.states || []).filter((s) => !s.found);
+    if (missingStates.length > 0) {
+      findings.push({
+        severity: "suggestion",
+        category: "Interactive States",
+        title: `${missingStates.length} state${missingStates.length > 1 ? "s" : ""} not detected`,
+        description: `Missing: ${missingStates.map((s) => s.name).join(", ")}`,
+        autoFixable: false
+      });
+    }
+    const criticalCount = findings.filter((f) => f.severity === "critical").length;
+    const warningCount = findings.filter((f) => f.severity === "warning").length;
+    const verdict = criticalCount > 0 ? "fail" : warningCount > 3 ? "warn" : "pass";
+    let headline;
+    if (verdict === "pass") {
+      headline = "Component follows design system conventions well.";
+    } else if (verdict === "warn") {
+      headline = `${warningCount} issues need attention before this component is production-ready.`;
+    } else {
+      headline = `${criticalCount} critical issue${criticalCount > 1 ? "s" : ""} found \u2014 missing design styles affect consistency.`;
+    }
+    const nextSteps = [];
+    if (lintResult && lintResult.summary.byType.fill > 0) nextSteps.push("Apply fill styles to layers using hard-coded colors");
+    if (lintResult && lintResult.summary.byType.text > 0) nextSteps.push("Apply text styles to text layers");
+    if (lintResult && lintResult.summary.byType.stroke > 0) nextSteps.push("Apply stroke styles to layers with hard-coded strokes");
+    if (lintResult && lintResult.summary.byType.spacing > 0) nextSteps.push("Fix off-grid spacing values to match the 4/8px grid");
+    if (lintResult && lintResult.summary.byType.autoLayout > 0) nextSteps.push("Apply auto-layout to container frames");
+    if (hardCoded > 0) nextSteps.push("Replace hard-coded values with design tokens");
+    if (namingIssues.length > 0) nextSteps.push("Rename generic layers to semantic names");
+    if (missingStates.length > 0) nextSteps.push(`Add missing states: ${missingStates.map((s) => s.name).join(", ")}`);
+    if (nextSteps.length === 0) nextSteps.push("Component looks great \u2014 consider documenting it for the team");
+    return { verdict, headline, findings, nextSteps };
+  }
+  async function generateDesignReview(context, lintResult, audit, tokens, namingIssues, recommendations, apiKey, model, providerId) {
+    var _a;
+    const lintSummary = lintResult ? `${lintResult.summary.totalErrors} lint issues (${lintResult.summary.byType.fill} fills, ${lintResult.summary.byType.stroke} strokes, ${lintResult.summary.byType.effect} effects, ${lintResult.summary.byType.text} text, ${lintResult.summary.byType.radius} radius, ${lintResult.summary.byType.spacing || 0} spacing, ${lintResult.summary.byType.autoLayout || 0} auto-layout)` : "0 lint issues";
+    const accessFails = (audit.accessibility || []).filter((c) => c.status === "fail").length;
+    const readinessFails = (audit.componentReadiness || []).filter((c) => c.status === "fail").length;
+    const missingStates = (audit.states || []).filter((s) => !s.found);
+    const topLintErrors = lintResult ? lintResult.errors.slice(0, 8).map((e) => `- [${e.errorType}] ${e.nodeName}: ${e.message}`).join("\n") : "None";
+    const reviewPrompt = `You are a design system reviewer (like CodeRabbit but for Figma designs). Review this component and produce a structured JSON design review.
+
+**Component:** ${context.name} (${context.type}, family: ${((_a = context.additionalContext) == null ? void 0 : _a.componentFamily) || "generic"})
+
+**Deterministic Lint Results:** ${lintSummary}
+${topLintErrors !== "None" ? `Top issues:
+${topLintErrors}` : ""}
+
+**Token Usage:** ${tokens.summary.actualTokens} tokens used, ${tokens.summary.hardCodedValues} hard-coded values
+**Accessibility Failures:** ${accessFails}
+**Component Readiness Failures:** ${readinessFails}
+**Missing States:** ${missingStates.map((s) => s.name).join(", ") || "None"}
+**Naming Issues:** ${namingIssues.length}
+**AI Recommendations:** ${recommendations.length} property suggestions
+
+Return JSON:
+{
+  "verdict": "pass" | "warn" | "fail",
+  "headline": "One concise sentence summarizing the overall design quality",
+  "findings": [
+    {
+      "severity": "critical" | "warning" | "info" | "suggestion",
+      "category": "Style Consistency" | "Design Tokens" | "Accessibility" | "Naming" | "Component Readiness" | "Interactive States",
+      "title": "Short finding title",
+      "description": "Actionable description of what to fix and why",
+      "autoFixable": true/false
+    }
+  ],
+  "nextSteps": ["Step 1", "Step 2", "Step 3"]
+}
+
+Rules:
+- verdict = "fail" if ANY critical issues exist (missing styles, accessibility failures)
+- verdict = "warn" if warnings > 3 and no critical
+- verdict = "pass" otherwise
+- Group similar lint errors (e.g. "5 layers missing fill styles" not 5 separate findings)
+- Max 10 findings, prioritized by severity
+- nextSteps: max 5, ordered by impact
+- Be specific and actionable, not generic`;
+    const response = await callProvider(providerId, apiKey, {
+      prompt: reviewPrompt,
+      model,
+      maxTokens: 1024,
+      temperature: 0.1
+    });
+    const parsed = extractJSONFromResponse(response.content);
+    if (!parsed) {
+      return generateDeterministicReview(lintResult, audit, tokens, namingIssues);
+    }
+    return {
+      verdict: parsed.verdict || "warn",
+      headline: parsed.headline || "Review completed",
+      findings: (parsed.findings || []).map((f) => ({
+        severity: f.severity || "info",
+        category: f.category || "General",
+        title: f.title || "",
+        description: f.description || "",
+        nodeId: f.nodeId,
+        nodeName: f.nodeName,
+        autoFixable: f.autoFixable || false
+      })),
+      nextSteps: parsed.nextSteps || []
+    };
   }
   async function createAuditResults(filteredData, context, node, actualProperties, actualStates, tokens, componentDescription) {
     var _a;
@@ -5576,6 +6518,258 @@ ${scoringCriteria}
     return 1 - distance / maxDistance;
   }
 
+  // src/extract/screenshot.ts
+  async function exportScreenshot(node, maxWidth = 1024) {
+    const bytes = await node.exportAsync({
+      format: "PNG",
+      constraint: { type: "WIDTH", value: Math.min(maxWidth, node.width) }
+    });
+    return uint8ArrayToBase64(bytes);
+  }
+  function uint8ArrayToBase64(bytes) {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let result = "";
+    const len = bytes.length;
+    for (let i = 0; i < len; i += 3) {
+      const b0 = bytes[i];
+      const b1 = i + 1 < len ? bytes[i + 1] : 0;
+      const b2 = i + 2 < len ? bytes[i + 2] : 0;
+      result += chars[b0 >> 2];
+      result += chars[(b0 & 3) << 4 | b1 >> 4];
+      result += i + 1 < len ? chars[(b1 & 15) << 2 | b2 >> 6] : "=";
+      result += i + 2 < len ? chars[b2 & 63] : "=";
+    }
+    return result;
+  }
+
+  // src/fix/fix-spacing.ts
+  var SPACING_PROPERTIES = [
+    "itemSpacing",
+    "paddingTop",
+    "paddingBottom",
+    "paddingLeft",
+    "paddingRight",
+    "counterAxisSpacing"
+  ];
+  function fixSpacing(nodeId, property, newValue) {
+    const node = figma.getNodeById(nodeId);
+    if (!node) {
+      return { success: false, nodeId, nodeName: "", property, oldValue: 0, newValue, error: "Node not found" };
+    }
+    if (node.type !== "FRAME" && node.type !== "COMPONENT" && node.type !== "INSTANCE") {
+      return { success: false, nodeId, nodeName: node.name, property, oldValue: 0, newValue, error: "Node is not a frame" };
+    }
+    const frame = node;
+    if (frame.layoutMode === "NONE") {
+      return { success: false, nodeId, nodeName: node.name, property, oldValue: 0, newValue, error: "Frame has no auto-layout" };
+    }
+    try {
+      const oldValue = frame[property];
+      frame[property] = newValue;
+      return {
+        success: true,
+        nodeId,
+        nodeName: node.name,
+        property,
+        oldValue,
+        newValue
+      };
+    } catch (error) {
+      return {
+        success: false,
+        nodeId,
+        nodeName: node.name,
+        property,
+        oldValue: 0,
+        newValue,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+  function fixSpacingToNearest(nodeId, property) {
+    const node = figma.getNodeById(nodeId);
+    if (!node || node.type !== "FRAME" && node.type !== "COMPONENT" && node.type !== "INSTANCE") {
+      return { success: false, nodeId, nodeName: (node == null ? void 0 : node.name) || "", property, oldValue: 0, newValue: 0, error: "Invalid node" };
+    }
+    const frame = node;
+    const currentValue = frame[property];
+    if (typeof currentValue !== "number") {
+      return { success: false, nodeId, nodeName: node.name, property, oldValue: 0, newValue: 0, error: "Property is not a number" };
+    }
+    if (SPACING_SCALE.includes(currentValue)) {
+      return { success: true, nodeId, nodeName: node.name, property, oldValue: currentValue, newValue: currentValue };
+    }
+    const suggestions = findClosestSpacingValues(currentValue);
+    if (suggestions.length === 0) {
+      return { success: false, nodeId, nodeName: node.name, property, oldValue: currentValue, newValue: currentValue, error: "No suggestion found" };
+    }
+    const closest = suggestions.reduce((a, b) => Math.abs(a - currentValue) <= Math.abs(b - currentValue) ? a : b);
+    return fixSpacing(nodeId, property, closest);
+  }
+  function fixAllSpacingOnNode(nodeId) {
+    const node = figma.getNodeById(nodeId);
+    if (!node || node.type !== "FRAME" && node.type !== "COMPONENT" && node.type !== "INSTANCE") {
+      return [];
+    }
+    const frame = node;
+    if (frame.layoutMode === "NONE") return [];
+    const results = [];
+    for (const prop of SPACING_PROPERTIES) {
+      if (!(prop in frame)) continue;
+      const value = frame[prop];
+      if (typeof value !== "number") continue;
+      if (SPACING_SCALE.includes(value)) continue;
+      const result = fixSpacingToNearest(nodeId, prop);
+      results.push(result);
+    }
+    return results;
+  }
+
+  // src/fix/rename-layer.ts
+  function renameLayerById(nodeId, newName) {
+    const node = figma.getNodeById(nodeId);
+    if (!node || node.type === "DOCUMENT" || node.type === "PAGE") {
+      return { success: false, nodeId, oldName: "", newName, error: "Node not found" };
+    }
+    try {
+      const oldName = node.name;
+      node.name = newName;
+      return { success: true, nodeId, oldName, newName };
+    } catch (error) {
+      return {
+        success: false,
+        nodeId,
+        oldName: node.name,
+        newName,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  // src/fix/batch.ts
+  init_apply_style();
+  async function executeBatchFix(fixes) {
+    let applied = 0;
+    let failed = 0;
+    const results = [];
+    for (let i = 0; i < fixes.length; i++) {
+      const fix = fixes[i];
+      try {
+        const result = await executeSingleFix(fix);
+        results.push(__spreadValues({ index: i }, result));
+        if (result.success) {
+          applied++;
+        } else {
+          failed++;
+        }
+      } catch (error) {
+        failed++;
+        results.push({
+          index: i,
+          type: fix.type,
+          success: false,
+          nodeId: String(fix.params.nodeId || ""),
+          nodeName: "",
+          message: "Unexpected error",
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    return { total: fixes.length, applied, failed, results };
+  }
+  async function executeSingleFix(fix) {
+    const { type, params } = fix;
+    switch (type) {
+      case "applyStyle": {
+        const styleType = params.styleType;
+        const nodeId = params.nodeId;
+        const styleKey = params.styleKey;
+        let result;
+        switch (styleType) {
+          case "fill":
+            result = await applyFillStyle(nodeId, styleKey);
+            break;
+          case "stroke":
+            result = await applyStrokeStyle(nodeId, styleKey);
+            break;
+          case "text":
+            result = await applyTextStyle(nodeId, styleKey);
+            break;
+          case "effect":
+            result = await applyEffectStyle(nodeId, styleKey);
+            break;
+          default:
+            return { type, success: false, nodeId, nodeName: "", message: `Unknown style type: ${styleType}` };
+        }
+        return {
+          type,
+          success: result.success,
+          nodeId: result.nodeId,
+          nodeName: result.nodeName,
+          message: result.success ? `Applied ${result.property}: ${result.newValue}` : result.error || "Failed",
+          oldValue: result.oldValue,
+          newValue: result.newValue,
+          error: result.error
+        };
+      }
+      case "fixSpacing": {
+        const nodeId = params.nodeId;
+        const property = params.property;
+        const value = params.value;
+        const result = fixSpacing(
+          nodeId,
+          property,
+          value
+        );
+        return {
+          type,
+          success: result.success,
+          nodeId: result.nodeId,
+          nodeName: result.nodeName,
+          message: result.success ? `${result.property}: ${result.oldValue}px \u2192 ${result.newValue}px` : result.error || "Failed",
+          oldValue: `${result.oldValue}px`,
+          newValue: `${result.newValue}px`,
+          error: result.error
+        };
+      }
+      case "fixSpacingToNearest": {
+        const nodeId = params.nodeId;
+        const property = params.property;
+        const result = fixSpacingToNearest(
+          nodeId,
+          property
+        );
+        return {
+          type,
+          success: result.success,
+          nodeId: result.nodeId,
+          nodeName: result.nodeName,
+          message: result.success ? `${result.property}: ${result.oldValue}px \u2192 ${result.newValue}px` : result.error || "Failed",
+          oldValue: `${result.oldValue}px`,
+          newValue: `${result.newValue}px`,
+          error: result.error
+        };
+      }
+      case "renameLayer": {
+        const nodeId = params.nodeId;
+        const newName = params.newName;
+        const result = renameLayerById(nodeId, newName);
+        return {
+          type,
+          success: result.success,
+          nodeId: result.nodeId,
+          nodeName: result.newName,
+          message: result.success ? `Renamed "${result.oldName}" \u2192 "${result.newName}"` : result.error || "Failed",
+          oldValue: result.oldName,
+          newValue: result.newName,
+          error: result.error
+        };
+      }
+      default:
+        return { type, success: false, nodeId: "", nodeName: "", message: `Unknown fix type: ${type}` };
+    }
+  }
+
   // src/ui/message-handler.ts
   var storedApiKey = null;
   var selectedModel = "claude-sonnet-4-5-20250929";
@@ -5650,6 +6844,62 @@ ${scoringCriteria}
           break;
         case "add-component-property":
           await handleAddComponentProperty(data);
+          break;
+        // Design Lint handlers (deterministic, no AI)
+        case "run-design-lint":
+          handleRunDesignLint(data);
+          break;
+        case "lint-ignore-node":
+          handleLintIgnoreNode(data);
+          break;
+        case "lint-ignore-error":
+          handleLintIgnoreError(data);
+          break;
+        case "lint-ignore-all-of-type":
+          handleLintIgnoreAllOfType(data);
+          break;
+        case "lint-clear-ignored":
+          handleLintClearIgnored();
+          break;
+        case "lint-select-node":
+          handleLintSelectNode(data);
+          break;
+        case "lint-select-all-with-value":
+          handleLintSelectAllWithValue(data);
+          break;
+        case "lint-save-settings":
+          handleLintSaveSettings(data);
+          break;
+        case "lint-load-settings":
+          handleLintLoadSettings();
+          break;
+        // Chat UI handlers
+        case "jump-to-node":
+          handleJumpToNode(data);
+          break;
+        case "fix-spacing":
+          handleFixSpacing(data);
+          break;
+        case "fix-spacing-to-nearest":
+          handleFixSpacingToNearest(data);
+          break;
+        case "fix-all-spacing":
+          handleFixAllSpacing(data);
+          break;
+        case "apply-style-fix":
+          await handleApplyStyleFix(data);
+          break;
+        case "rename-layer-fix":
+          handleRenameLayerFix(data);
+          break;
+        case "batch-fix-v2":
+          await handleBatchFixV2(data);
+          break;
+        case "rescan-lint":
+          handleRescanLint();
+          break;
+        case "export-screenshot":
+          await handleExportScreenshot(data);
           break;
         default:
           console.warn("Unknown message type:", type);
@@ -6198,6 +7448,248 @@ ${hasComponentContext ? "Since you have context about their current component, p
 
 Respond naturally and helpfully to the user's question.`;
   }
+  var currentLintSettings = __spreadValues({}, DEFAULT_LINT_SETTINGS);
+  function handleRunDesignLint(data) {
+    const settings = (data == null ? void 0 : data.settings) || currentLintSettings;
+    const result = lintSelection(settings);
+    sendMessageToUI("design-lint-result", result);
+  }
+  function handleLintIgnoreNode(data) {
+    ignoreNode(data.nodeId);
+    handleRunDesignLint();
+  }
+  function handleLintIgnoreError(data) {
+    ignoreError(data.nodeId, data.errorType);
+    handleRunDesignLint();
+  }
+  function handleLintIgnoreAllOfType(data) {
+    const result = lintSelection(currentLintSettings);
+    ignoreAllOfType(result.errors, data.errorType);
+    handleRunDesignLint();
+  }
+  function handleLintClearIgnored() {
+    clearIgnored();
+    handleRunDesignLint();
+  }
+  function handleLintSelectNode(data) {
+    try {
+      const node = figma.getNodeById(data.nodeId);
+      if (node && node.type !== "DOCUMENT" && node.type !== "PAGE") {
+        figma.currentPage.selection = [node];
+        figma.viewport.scrollAndZoomIntoView([node]);
+      }
+    } catch (error) {
+      console.warn("Could not select node:", data.nodeId, error);
+    }
+  }
+  function handleLintSelectAllWithValue(data) {
+    const selection = figma.currentPage.selection;
+    if (selection.length === 0) return;
+    const matching = findNodesWithSameValue(selection, data.errorType, data.value, currentLintSettings);
+    const nodeIds = [...new Set(matching.map((e) => e.nodeId))];
+    const nodes = nodeIds.map((id) => figma.getNodeById(id)).filter((n) => n !== null && n.type !== "DOCUMENT" && n.type !== "PAGE");
+    if (nodes.length > 0) {
+      figma.currentPage.selection = nodes;
+      figma.viewport.scrollAndZoomIntoView(nodes);
+      sendMessageToUI("lint-selected-nodes", { count: nodes.length, value: data.value });
+    }
+  }
+  async function handleLintSaveSettings(data) {
+    currentLintSettings = data.settings;
+    try {
+      await figma.clientStorage.setAsync("design-lint-settings", data.settings);
+    } catch (error) {
+      console.warn("Could not save lint settings:", error);
+    }
+  }
+  async function handleLintLoadSettings() {
+    try {
+      const saved = await figma.clientStorage.getAsync("design-lint-settings");
+      if (saved) {
+        currentLintSettings = __spreadValues(__spreadValues({}, DEFAULT_LINT_SETTINGS), saved);
+      }
+      sendMessageToUI("lint-settings-loaded", currentLintSettings);
+    } catch (error) {
+      console.warn("Could not load lint settings:", error);
+      sendMessageToUI("lint-settings-loaded", DEFAULT_LINT_SETTINGS);
+    }
+  }
+  function handleJumpToNode(data) {
+    try {
+      const node = figma.getNodeById(data.nodeId);
+      if (node && node.type !== "DOCUMENT" && node.type !== "PAGE") {
+        figma.currentPage.selection = [node];
+        figma.viewport.scrollAndZoomIntoView([node]);
+      }
+    } catch (error) {
+      console.warn("Could not jump to node:", data.nodeId, error);
+    }
+  }
+  function handleFixSpacing(data) {
+    try {
+      const node = figma.getNodeById(data.nodeId);
+      if (node && (node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE")) {
+        const oldValue = node[data.property];
+        node[data.property] = data.value;
+        sendMessageToUI("fix-applied", {
+          type: "spacing",
+          nodeId: data.nodeId,
+          nodeName: node.name,
+          property: data.property,
+          oldValue,
+          newValue: data.value
+        });
+      }
+    } catch (error) {
+      console.warn("Could not fix spacing:", error);
+      sendMessageToUI("fix-error", { error: "Failed to apply spacing fix" });
+    }
+  }
+  async function handleExportScreenshot(data) {
+    try {
+      let node = null;
+      if (data == null ? void 0 : data.nodeId) {
+        const found = figma.getNodeById(data.nodeId);
+        if (found && found.type !== "DOCUMENT" && found.type !== "PAGE") {
+          node = found;
+        }
+      } else if (figma.currentPage.selection.length > 0) {
+        node = figma.currentPage.selection[0];
+      }
+      if (!node) {
+        sendMessageToUI("screenshot-error", { error: "No node selected" });
+        return;
+      }
+      const base64 = await exportScreenshot(node);
+      sendMessageToUI("screenshot-result", {
+        nodeId: node.id,
+        nodeName: node.name,
+        screenshot: base64,
+        width: node.width,
+        height: node.height
+      });
+    } catch (error) {
+      console.warn("Could not export screenshot:", error);
+      sendMessageToUI("screenshot-error", { error: "Failed to export screenshot" });
+    }
+  }
+  function handleFixSpacingToNearest(data) {
+    try {
+      const result = fixSpacingToNearest(
+        data.nodeId,
+        data.property
+      );
+      sendMessageToUI("fix-applied", {
+        type: "spacing",
+        nodeId: result.nodeId,
+        nodeName: result.nodeName,
+        property: data.property,
+        oldValue: result.oldValue,
+        newValue: result.newValue,
+        success: result.success,
+        error: result.error
+      });
+    } catch (error) {
+      sendMessageToUI("fix-error", { error: "Failed to auto-fix spacing" });
+    }
+  }
+  function handleFixAllSpacing(data) {
+    try {
+      const results = fixAllSpacingOnNode(data.nodeId);
+      const applied = results.filter((r) => r.success).length;
+      for (const result of results) {
+        sendMessageToUI("fix-applied", {
+          type: "spacing",
+          nodeId: result.nodeId,
+          nodeName: result.nodeName,
+          property: result.property,
+          oldValue: result.oldValue,
+          newValue: result.newValue,
+          success: result.success
+        });
+      }
+      if (applied > 0) {
+        figma.notify(`Fixed ${applied} spacing value${applied !== 1 ? "s" : ""}`, { timeout: 2e3 });
+      }
+    } catch (error) {
+      sendMessageToUI("fix-error", { error: "Failed to fix all spacing" });
+    }
+  }
+  async function handleApplyStyleFix(data) {
+    try {
+      const { applyFillStyle: applyFillStyle2, applyStrokeStyle: applyStrokeStyle2, applyTextStyle: applyTextStyle2, applyEffectStyle: applyEffectStyle2 } = await Promise.resolve().then(() => (init_apply_style(), apply_style_exports));
+      let result;
+      switch (data.styleType) {
+        case "fill":
+          result = await applyFillStyle2(data.nodeId, data.styleKey);
+          break;
+        case "stroke":
+          result = await applyStrokeStyle2(data.nodeId, data.styleKey);
+          break;
+        case "text":
+          result = await applyTextStyle2(data.nodeId, data.styleKey);
+          break;
+        case "effect":
+          result = await applyEffectStyle2(data.nodeId, data.styleKey);
+          break;
+        default:
+          sendMessageToUI("fix-error", { error: `Unknown style type: ${data.styleType}` });
+          return;
+      }
+      sendMessageToUI("fix-applied", {
+        type: "style",
+        nodeId: result.nodeId,
+        nodeName: result.nodeName,
+        property: result.property,
+        oldValue: result.oldValue,
+        newValue: result.newValue,
+        success: result.success,
+        error: result.error
+      });
+    } catch (error) {
+      sendMessageToUI("fix-error", { error: "Failed to apply style" });
+    }
+  }
+  function handleRenameLayerFix(data) {
+    try {
+      const result = renameLayerById(data.nodeId, data.newName);
+      sendMessageToUI("fix-applied", {
+        type: "rename",
+        nodeId: result.nodeId,
+        nodeName: result.newName,
+        oldValue: result.oldName,
+        newValue: result.newName,
+        success: result.success,
+        error: result.error
+      });
+    } catch (error) {
+      sendMessageToUI("fix-error", { error: "Failed to rename layer" });
+    }
+  }
+  async function handleBatchFixV2(data) {
+    try {
+      const summary = await executeBatchFix(data.fixes);
+      sendMessageToUI("batch-fix-v2-result", summary);
+      if (summary.failed === 0) {
+        figma.notify(`Applied ${summary.applied} fix${summary.applied !== 1 ? "es" : ""} successfully`, { timeout: 2e3 });
+      } else if (summary.applied > 0) {
+        figma.notify(`Applied ${summary.applied}, ${summary.failed} failed`, { timeout: 3e3 });
+      } else {
+        figma.notify(`All ${summary.failed} fixes failed`, { error: true });
+      }
+      handleRescanLint();
+    } catch (error) {
+      sendMessageToUI("fix-error", { error: "Batch fix failed" });
+    }
+  }
+  function handleRescanLint() {
+    const result = lintSelection(currentLintSettings);
+    sendMessageToUI("design-lint-result", result);
+    sendMessageToUI("rescan-complete", {
+      totalErrors: result.summary.totalErrors,
+      nodesWithErrors: result.summary.nodesWithErrors
+    });
+  }
   async function initializePlugin() {
     try {
       const config = await loadProviderConfig();
@@ -6736,7 +8228,7 @@ Respond naturally and helpfully to the user's question.`;
   }
 
   // src/code.ts
-  var PLUGIN_WINDOW_SIZE = { width: 400, height: 700 };
+  var PLUGIN_WINDOW_SIZE = { width: 380, height: 600, themeColors: true };
   try {
     figma.showUI(__html__, PLUGIN_WINDOW_SIZE);
     console.log("\u2705 FigmaLint v2.0 - UI shown successfully");

@@ -1,0 +1,193 @@
+/**
+ * Backend API client for the Design Review Chat backend.
+ * All calls go through the plugin UI iframe (has fetch access).
+ */
+
+const DEFAULT_BACKEND_URL = 'https://api.figmalint.labpics.com';
+
+let backendUrl = DEFAULT_BACKEND_URL;
+
+export function setBackendUrl(url: string): void {
+  backendUrl = url.replace(/\/$/, '');
+}
+
+export function getBackendUrl(): string {
+  return backendUrl;
+}
+
+/**
+ * POST /api/analyze — full AI analysis with screenshot + lint.
+ */
+export async function analyzeComponent(data: {
+  screenshot: string;
+  lintResult: unknown;
+  extractedData: {
+    componentName: string;
+    componentDescription?: string;
+    properties?: Array<{ name: string; type: string }>;
+    states?: string[];
+    metadata?: {
+      nodeId: string;
+      nodeType: string;
+      width: number;
+      height: number;
+      hasAutoLayout: boolean;
+      childCount: number;
+    };
+  };
+  sessionId?: string;
+  mode: 'quick' | 'deep';
+}): Promise<{
+  sessionId: string;
+  pageType: string;
+  aiReview: {
+    visualHierarchy: { rating: string; evidence: string[]; recommendation: string | null };
+    statesCoverage: { rating: string; evidence: string[]; recommendation: string | null; missingStates: string[] };
+    platformAlignment: { rating: string; evidence: string[]; recommendation: string | null; detectedPlatform: string };
+    colorHarmony: { rating: string; evidence: string[]; recommendation: string | null };
+    recommendations: Array<{ title: string; description: string; severity: string }>;
+    summary: string;
+  };
+  designHealthScore: number;
+  referoComparison?: {
+    matchingPatterns: Array<{ pattern: string; frequency: string }>;
+    missingPatterns: Array<{ pattern: string; frequency: string; exampleCompanies: string[] }>;
+    stylePositioning: { closest: string[]; different: string[] };
+    suggestions: Array<{ title: string; description: string; evidence: string }>;
+    summary: string;
+    screenshots: Array<{ id: string; title: string; company: string; pageType: string; thumbnailUrl: string; fullUrl: string; platform: 'web' | 'ios' | 'android'; tags?: string[] }>;
+  };
+}> {
+  const resp = await fetch(`${backendUrl}/api/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || 'Analysis failed');
+  }
+
+  return resp.json();
+}
+
+/**
+ * POST /api/chat — non-streaming chat.
+ */
+export async function chatMessage(sessionId: string, message: string): Promise<{ message: string }> {
+  const resp = await fetch(`${backendUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, message }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || 'Chat failed');
+  }
+
+  return resp.json();
+}
+
+/**
+ * POST /api/stream/:sessionId — SSE streaming chat.
+ * Returns an EventSource-like reader.
+ */
+export async function streamChat(
+  sessionId: string,
+  message: string,
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (error: string) => void
+): Promise<void> {
+  try {
+    const resp = await fetch(`${backendUrl}/api/stream/${sessionId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      onError(err.error || 'Stream failed');
+      return;
+    }
+
+    const reader = resp.body?.getReader();
+    if (!reader) {
+      onError('No response body');
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE events
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          currentEvent = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          const data = line.slice(5).trim();
+          try {
+            const parsed = JSON.parse(data);
+            if (currentEvent === 'error') {
+              onError(parsed.error || 'Stream error');
+              return;
+            }
+            if (currentEvent === 'done') {
+              onDone();
+              return;
+            }
+            if (parsed.text) onChunk(parsed.text);
+          } catch {
+            // Not JSON, skip
+          }
+          currentEvent = '';
+        }
+      }
+    }
+
+    onDone();
+  } catch (error) {
+    onError(error instanceof Error ? error.message : 'Stream failed');
+  }
+}
+
+/**
+ * GET /api/health — check backend availability.
+ */
+/**
+ * GET /api/session/:id/refero — poll for async Refero data.
+ */
+export async function fetchReferoData(sessionId: string): Promise<{ ready: boolean; data?: any }> {
+  try {
+    const resp = await fetch(`${backendUrl}/api/session/${sessionId}/refero`, { method: 'GET' });
+    if (!resp.ok) return { ready: false };
+    return resp.json();
+  } catch {
+    return { ready: false };
+  }
+}
+
+/**
+ * GET /api/health — check backend availability.
+ */
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const resp = await fetch(`${backendUrl}/api/health`, { method: 'GET' });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
