@@ -55,7 +55,7 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+    <div role="log" aria-live="polite" aria-label="Chat messages" className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
       {messages.map((msg) => {
         const m = msg.message;
         switch (m.kind) {

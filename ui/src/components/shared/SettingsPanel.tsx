@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 interface SettingsPanelProps {
   hasApiKey: boolean;
@@ -29,6 +29,8 @@ export default function SettingsPanel({
   const [provider, setProvider] = useState('anthropic');
   const [saving, setSaving] = useState(false);
 
+  const panelRef = useRef<HTMLDivElement>(null);
+
   const handleSave = useCallback(() => {
     if (!apiKey.trim()) return;
     setSaving(true);
@@ -39,8 +41,53 @@ export default function SettingsPanel({
     }, 500);
   }, [apiKey, provider, onSaveApiKey]);
 
+  // Focus trap + Escape key + auto-focus first element
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    // Auto-focus the first focusable element (close button)
+    const initialFocusable = panel.querySelectorAll<HTMLElement>(focusableSelector);
+    if (initialFocusable.length > 0) {
+      initialFocusable[0].focus();
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+
+      if (e.key !== 'Tab') return;
+
+      const focusables = panel.querySelectorAll<HTMLElement>(focusableSelector);
+      if (focusables.length === 0) return;
+
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    panel.addEventListener('keydown', handleKeyDown);
+    return () => panel.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="absolute inset-0 z-50 bg-bg flex flex-col">
+    <div ref={panelRef} role="dialog" aria-modal="true" aria-label="Settings" className="absolute inset-0 z-50 bg-bg flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <span className="text-12 font-medium">Settings</span>

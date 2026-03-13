@@ -5,7 +5,7 @@
   "main": "dist/code.js",
   "scripts": {
     "build": "npm run bundle && npm run build:ui && npm run copy-assets",
-    "bundle": "esbuild src/code.ts --bundle --outfile=dist/code.js --platform=neutral --target=es2017 --format=iife --loader:.ts=ts",
+    "bundle": "esbuild src/code.ts --bundle --outfile=dist/code.js --platform=neutral --target=es2017 --format=iife --loader:.ts=ts --minify",
     "build:ui": "npm --prefix ui run build",
     "dev": "npm run bundle -- --watch",
     "copy-assets": "cp manifest.json dist/",

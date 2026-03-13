@@ -98,3 +98,14 @@ export function appendConversation(id: string, role: string, content: string): v
 
   append.immediate();
 }
+
+/**
+ * Delete sessions older than the given TTL (default 7 days).
+ * Returns the number of deleted sessions.
+ */
+export function cleanupExpiredSessions(ttlMs = 7 * 24 * 60 * 60 * 1000): number {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - ttlMs).toISOString();
+  const result = db.prepare('DELETE FROM sessions WHERE updated_at < ?').run(cutoff);
+  return result.changes;
+}

@@ -3,12 +3,15 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { bodyLimit } from 'hono/body-limit';
 import { serve } from '@hono/node-server';
+import { bearerAuth } from './middleware/auth.js';
+import { rateLimit } from './middleware/rate-limit.js';
 import health from './routes/health.js';
 import analyze from './routes/analyze.js';
 import chat from './routes/chat.js';
 import stream from './routes/stream.js';
 import session from './routes/session.js';
 import flow from './routes/flow.js';
+import { cleanupExpiredSessions } from './db/queries.js';
 import { mkdirSync, existsSync } from 'fs';
 import { dirname } from 'path';
 
@@ -31,6 +34,12 @@ app.use('*', logger());
 
 // Body size limit — base64 screenshots can be large but must be capped to prevent OOM
 app.use('/api/*', bodyLimit({ maxSize: 25 * 1024 * 1024 }));
+
+// Bearer auth — when BACKEND_AUTH_TOKEN is set, require it on all /api/* except /api/health
+app.use('/api/*', bearerAuth());
+
+// Rate limiting — sliding window per IP
+app.use('/api/*', rateLimit());
 app.use(
   '*',
   cors({
@@ -43,7 +52,7 @@ app.use(
       return allowed.includes(origin) ? origin : '';
     },
     allowMethods: ['GET', 'POST', 'OPTIONS'],
-    allowHeaders: ['Content-Type'],
+    allowHeaders: ['Content-Type', 'Authorization'],
   })
 );
 
@@ -59,6 +68,18 @@ app.route('/api', flow);
 app.get('/', (c) => c.json({ name: 'FigmaLint Design Review API', version: '1.0.0' }));
 
 const port = parseInt(process.env.PORT || '3000', 10);
+
+// Clean up expired sessions on startup, then periodically every 6 hours
+try {
+  const deleted = cleanupExpiredSessions();
+  if (deleted > 0) console.log(`Cleaned up ${deleted} expired sessions.`);
+} catch { /* DB may not be initialized yet */ }
+setInterval(() => {
+  try {
+    const deleted = cleanupExpiredSessions();
+    if (deleted > 0) console.log(`Cleaned up ${deleted} expired sessions.`);
+  } catch { /* ignore */ }
+}, 6 * 60 * 60 * 1000).unref();
 
 console.log(`Starting FigmaLint backend on port ${port}...`);
 serve({ fetch: app.fetch, port });

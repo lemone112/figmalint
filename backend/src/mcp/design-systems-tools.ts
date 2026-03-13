@@ -1,5 +1,5 @@
 import { getDesignSystemsClient } from './design-systems-client.js';
-import { parseToolResult } from './parse-tool-result.js';
+import { parseToolResult, withTimeout } from './parse-tool-result.js';
 
 // ── Types ──────────────────────────────────────────────
 
@@ -40,15 +40,19 @@ export async function searchDesignKnowledge(params: {
   if (!client) return [];
 
   try {
-    const result = await client.callTool({
-      name: 'search_design_knowledge',
-      arguments: {
-        query: params.query,
-        ...(params.category && { category: params.category }),
-        ...(params.tags && { tags: params.tags }),
-        limit: params.limit ?? 5,
-      },
-    });
+    const result = await withTimeout(
+      client.callTool({
+        name: 'search_design_knowledge',
+        arguments: {
+          query: params.query,
+          ...(params.category && { category: params.category }),
+          ...(params.tags && { tags: params.tags }),
+          limit: params.limit ?? 5,
+        },
+      }),
+      15_000,
+      'search_design_knowledge',
+    );
 
     const text = extractText(result);
     if (!text) return [];
@@ -70,13 +74,17 @@ export async function searchChunks(params: {
   if (!client) return [];
 
   try {
-    const result = await client.callTool({
-      name: 'search_chunks',
-      arguments: {
-        query: params.query,
-        limit: params.limit ?? 8,
-      },
-    });
+    const result = await withTimeout(
+      client.callTool({
+        name: 'search_chunks',
+        arguments: {
+          query: params.query,
+          limit: params.limit ?? 8,
+        },
+      }),
+      15_000,
+      'search_chunks',
+    );
 
     const parsed = parseToolResult(result);
     if (Array.isArray(parsed)) return parsed;
@@ -100,10 +108,14 @@ export async function browseByCategory(
   if (!client) return [];
 
   try {
-    const result = await client.callTool({
-      name: 'browse_by_category',
-      arguments: { category },
-    });
+    const result = await withTimeout(
+      client.callTool({
+        name: 'browse_by_category',
+        arguments: { category },
+      }),
+      15_000,
+      'browse_by_category',
+    );
 
     const text = extractText(result);
     if (!text) return [];
@@ -122,10 +134,14 @@ export async function getAllTags(): Promise<string[]> {
   if (!client) return [];
 
   try {
-    const result = await client.callTool({
-      name: 'get_all_tags',
-      arguments: {},
-    });
+    const result = await withTimeout(
+      client.callTool({
+        name: 'get_all_tags',
+        arguments: {},
+      }),
+      15_000,
+      'get_all_tags',
+    );
 
     const parsed = parseToolResult(result);
     if (Array.isArray(parsed)) return parsed;

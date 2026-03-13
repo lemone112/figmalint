@@ -17,6 +17,7 @@ export default function App() {
   const [selectionStale, setSelectionStale] = useState(false);
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null);
   const analyzedNodeId = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const walkthroughIndex = useRef(0);
   const referoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingLintResult = useRef<LintResult | null>(null);
@@ -254,6 +255,10 @@ export default function App() {
   }, [post]);
 
   const handleAnalyze = useCallback(() => {
+    // Abort any in-flight streaming chat
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+
     // Stop any active Refero polling from a previous analysis
     if (referoPollingRef.current) {
       clearInterval(referoPollingRef.current);
@@ -271,15 +276,25 @@ export default function App() {
 
       // If we have a backend session, use streaming chat
       if (chat.sessionId && backendAvailable) {
+        // Abort any previous in-flight stream
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         streamChat(
           chat.sessionId,
           text,
           (chunk) => chat.appendStreamChunk(chunk),
-          () => chat.finishStream(),
+          () => {
+            abortControllerRef.current = null;
+            chat.finishStream();
+          },
           (error) => {
+            abortControllerRef.current = null;
             chat.finishStream();
             chat.addMessage({ kind: 'ai-text', content: `Error: ${error}` });
-          }
+          },
+          controller.signal
         );
       } else {
         // Fallback to plugin main thread chat

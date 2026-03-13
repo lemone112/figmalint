@@ -1,5 +1,5 @@
 import { getReferoClient } from "./client.js";
-import { parseToolResult } from './parse-tool-result.js';
+import { parseToolResult, withTimeout } from './parse-tool-result.js';
 
 /**
  * A screen result from Refero search.
@@ -41,17 +41,21 @@ export async function searchScreens(params: {
   if (!client) return [];
 
   try {
-    const result = await client.callTool({
-      name: 'search_screens',
-      arguments: {
-        query: params.query,
-        ...(params.page_type && { page_type: params.page_type }),
-        ...(params.pattern && { pattern: params.pattern }),
-        ...(params.company && { company: params.company }),
-        ...(params.platform && { platform: params.platform }),
-        limit: params.limit ?? 10,
-      },
-    });
+    const result = await withTimeout(
+      client.callTool({
+        name: 'search_screens',
+        arguments: {
+          query: params.query,
+          ...(params.page_type && { page_type: params.page_type }),
+          ...(params.pattern && { pattern: params.pattern }),
+          ...(params.company && { company: params.company }),
+          ...(params.platform && { platform: params.platform }),
+          limit: params.limit ?? 10,
+        },
+      }),
+      15_000,
+      'Refero search_screens',
+    );
 
     const parsed = parseToolResult(result) as ReferoScreen[] | null;
     return Array.isArray(parsed) ? parsed : [];
@@ -69,10 +73,14 @@ export async function getScreen(screenId: string): Promise<ReferoScreen | null> 
   if (!client) return null;
 
   try {
-    const result = await client.callTool({
-      name: 'get_screen',
-      arguments: { id: screenId },
-    });
+    const result = await withTimeout(
+      client.callTool({
+        name: 'get_screen',
+        arguments: { id: screenId },
+      }),
+      15_000,
+      'Refero get_screen',
+    );
 
     const parsed = parseToolResult(result) as ReferoScreen | null;
     return parsed && typeof parsed === 'object' ? parsed : null;
@@ -93,13 +101,17 @@ export async function getDesignGuidance(params: {
   if (!client) return null;
 
   try {
-    const result = await client.callTool({
-      name: 'get_design_guidance',
-      arguments: {
-        page_type: params.page_type,
-        ...(params.pattern && { pattern: params.pattern }),
-      },
-    });
+    const result = await withTimeout(
+      client.callTool({
+        name: 'get_design_guidance',
+        arguments: {
+          page_type: params.page_type,
+          ...(params.pattern && { pattern: params.pattern }),
+        },
+      }),
+      15_000,
+      'Refero get_design_guidance',
+    );
 
     const parsed = parseToolResult(result) as DesignGuidance | null;
     return parsed && typeof parsed === 'object' ? parsed : null;

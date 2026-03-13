@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { withTimeout } from './parse-tool-result.js';
 
 const REFERO_MCP_URL = process.env.REFERO_MCP_URL || 'https://refero.design/mcp';
 
@@ -24,7 +25,7 @@ export async function getReferoClient(): Promise<Client | null> {
       new URL(REFERO_MCP_URL),
     );
 
-    await newClient.connect(transport);
+    await withTimeout(newClient.connect(transport), 15_000, 'Refero MCP connect');
     client = newClient;
     console.log('Connected to Refero MCP server');
     return client;

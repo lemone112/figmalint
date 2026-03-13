@@ -23,13 +23,13 @@ import {
   findBestMatchingVariable,
   FixPreview,
   FixResult,
-} from '../fixes/token-fixer';
+} from '../fix/token-fixer';
 import {
   previewRename,
   renameLayer,
   suggestLayerName,
   RenamePreview,
-} from '../fixes/naming-fixer';
+} from '../fix/naming-fixer';
 import { FixRequest, FixPreviewRequest, BatchFixRequest, LintSettings } from '../types';
 import { exportScreenshot } from '../extract/screenshot';
 import { buildFlowGraph, analyzeFlowGraph } from '../flow/graph-builder';
@@ -496,7 +496,7 @@ async function handleBatchAnalysis(nodes: readonly SceneNode[], _options: Enhanc
         ];
 
         // Generate component hash
-        const componentHash = consistencyEngine.generateComponentHash(componentContext, allTokens);
+        const componentHash = consistencyEngine.generateComponentHash(componentContext, allTokens, currentLintSettings as any);
 
         // Check for cached analysis first
         const cachedAnalysis = consistencyEngine.getCachedAnalysis(componentHash);
