@@ -8798,8 +8798,8 @@ ${scoringCriteria}
   });
   async function handleUIMessage(msg) {
     const { type, data } = msg;
-    const logData = type === "save-api-key" ? __spreadProps(__spreadValues({}, data), { apiKey: "***" }) : data;
-    console.log("Received message:", type, logData);
+    const logType = type === "save-api-key" ? `${type} [redacted]` : type;
+    console.log("Received message:", logType);
     try {
       switch (type) {
         case "check-api-key":
@@ -9803,6 +9803,12 @@ Respond naturally and helpfully to the user's question.`;
     }
   }
   function handleRescanLint() {
+    if (lintScopeNodeIds) {
+      const nodes = lintScopeNodeIds.map((id) => figma.getNodeById(id)).filter((n) => n !== null && n.type !== "DOCUMENT" && n.type !== "PAGE");
+      if (nodes.length > 0) {
+        figma.currentPage.selection = nodes;
+      }
+    }
     const result = lintSelection(currentLintSettings);
     sendMessageToUI("design-lint-result", result);
     sendMessageToUI("rescan-complete", {

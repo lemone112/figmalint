@@ -21,11 +21,11 @@ app.post('/analyze-flow', async (c) => {
 
     const result = await analyzeFlow(body);
     if (!result) {
-      return c.json({ success: false, error: 'Flow analysis unavailable (API key not configured)' }, 200);
+      return c.json({ success: false, error: 'Flow analysis unavailable' }, 503);
     }
     return c.json({ success: true, flowAnalysis: result });
   } catch (error) {
-    console.error('Flow analysis error:', error);
+    console.error('Flow analysis error:', error instanceof Error ? error.message : 'Unknown');
     return c.json({ error: 'Flow analysis failed. Please try again.' }, 500);
   }
 });

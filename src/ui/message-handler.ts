@@ -87,8 +87,8 @@ const consistencyEngine = new ComponentConsistencyEngine({
  */
 export async function handleUIMessage(msg: PluginMessage): Promise<void> {
   const { type, data } = msg;
-  const logData = type === 'save-api-key' ? { ...data, apiKey: '***' } : data;
-  console.log('Received message:', type, logData);
+  const logType = type === 'save-api-key' ? `${type} [redacted]` : type;
+  console.log('Received message:', logType);
 
   try {
     switch (type as UIMessageType) {
@@ -1374,6 +1374,15 @@ async function handleBatchFixV2(data: { fixes: BatchFixAction[] }): Promise<void
 }
 
 function handleRescanLint(): void {
+  // Restore original lint scope for consistent re-scans
+  if (lintScopeNodeIds) {
+    const nodes = lintScopeNodeIds
+      .map(id => figma.getNodeById(id))
+      .filter((n): n is SceneNode => n !== null && n.type !== 'DOCUMENT' && n.type !== 'PAGE');
+    if (nodes.length > 0) {
+      figma.currentPage.selection = nodes;
+    }
+  }
   const result = lintSelection(currentLintSettings);
   sendMessageToUI('design-lint-result', result);
   sendMessageToUI('rescan-complete', {

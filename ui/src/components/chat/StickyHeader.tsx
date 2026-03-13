@@ -46,6 +46,7 @@ export default function StickyHeader({ componentName, score, totalIssues, issues
           onClick={onOpenSettings}
           className="shrink-0 w-7 h-7 flex items-center justify-center text-fg-tertiary hover:text-fg rounded-md hover:bg-bg-hover transition-colors"
           title="Settings"
+          aria-label="Open settings"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
