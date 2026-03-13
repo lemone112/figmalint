@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import ChatContainer from './components/chat/ChatContainer';
 import SettingsPanel from './components/shared/SettingsPanel';
+import TeamConfigPanel from './components/shared/TeamConfigPanel';
 import { useChat } from './hooks/useChat';
 import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
 import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData, PageSweepData, PageSweepRawData, MiniScoreData } from './lib/messages';
@@ -14,6 +15,8 @@ export default function App() {
   const [backendAvailable, setBackendAvailable] = useState(false);
   const [analysisMode, setAnalysisMode] = useState<'quick' | 'deep'>('quick');
   const [showSettings, setShowSettings] = useState(false);
+  const [showTeamConfig, setShowTeamConfig] = useState(false);
+  const [teamConfig, setTeamConfig] = useState<Record<string, unknown> | undefined>(undefined);
   const [selectionStale, setSelectionStale] = useState(false);
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null);
   const [miniScore, setMiniScore] = useState<MiniScoreData | null>(null);
@@ -296,6 +299,107 @@ export default function App() {
           }
           case 'selection-mini-score': {
             setMiniScore(event.data as MiniScoreData);
+            break;
+          }
+
+          // ── New analysis feature events ────────────────────
+
+          case 'design-debt-result': {
+            chat.addMessage({ kind: 'design-debt', data: event.data });
+            break;
+          }
+
+          case 'dark-mode-card-result': {
+            chat.addMessage({ kind: 'dark-mode', data: event.data });
+            break;
+          }
+
+          case 'mode-comparison-result': {
+            // Raw mode data — show text summary (card comes via dark-mode-card-result)
+            const modeRaw = event.data as { collection: string; variableDiffs: unknown[]; missingValues: unknown[] };
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Mode comparison for "${modeRaw.collection}": ${(modeRaw.variableDiffs as unknown[]).length} variable diffs, ${(modeRaw.missingValues as unknown[]).length} missing values.`,
+            });
+            break;
+          }
+
+          case 'mode-comparison-error': {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Dark mode comparison failed: ${(event.data as { error: string }).error}`,
+            });
+            break;
+          }
+
+          case 'dtcg-compliance-result': {
+            chat.addMessage({ kind: 'token-compliance', data: event.data });
+            break;
+          }
+
+          case 'dtcg-compliance-error': {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Token compliance check failed: ${(event.data as { error: string }).error}`,
+            });
+            break;
+          }
+
+          case 'variable-system-result': {
+            const report = event.data as { totalVariables: number; unusedVariables: string[]; adoptionRate: number; collections: unknown[] };
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `**Variable System Report**\n- Total variables: ${report.totalVariables}\n- Adoption rate: ${Math.round(report.adoptionRate * 100)}%\n- Unused variables: ${report.unusedVariables.length}\n- Collections: ${report.collections.length}`,
+            });
+            break;
+          }
+
+          case 'variable-system-error': {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Variable collection failed: ${(event.data as { error: string }).error}`,
+            });
+            break;
+          }
+
+          case 'extended-lint-result': {
+            const extResult = event.data as Record<string, { issues?: unknown[] }>;
+            const totalIssues = Object.values(extResult).reduce(
+              (sum, r) => sum + (r?.issues?.length ?? 0), 0
+            );
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `**Extended lint complete** — ${totalIssues} issue${totalIssues !== 1 ? 's' : ''} across ${Object.keys(extResult).length} modules.`,
+            });
+            break;
+          }
+
+          case 'extended-lint-error': {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Extended lint failed: ${(event.data as { error: string }).error}`,
+            });
+            break;
+          }
+
+          case 'team-config-loaded': {
+            const payload = event.data as { config: Record<string, unknown> | null; settings: unknown };
+            if (payload.config) {
+              setTeamConfig(payload.config);
+              chat.addMessage({ kind: 'ai-text', content: 'Team config loaded from file.' });
+            } else {
+              chat.addMessage({ kind: 'ai-text', content: 'No team config found in this file.' });
+            }
+            break;
+          }
+
+          case 'team-config-saved': {
+            const saveResult = event.data as { success: boolean; error?: string };
+            if (saveResult.success) {
+              chat.addMessage({ kind: 'ai-text', content: 'Team config saved to file.' });
+            } else {
+              chat.addMessage({ kind: 'ai-text', content: `Failed to save team config: ${saveResult.error || 'Unknown error'}` });
+            }
             break;
           }
         }
@@ -618,6 +722,36 @@ export default function App() {
           });
           break;
         }
+
+        // ── New analysis feature actions ────────────────────
+
+        case 'design-debt': {
+          if (!chat.lintResult) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to calculate design debt.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Calculating design debt...' });
+          post('calculate-design-debt', {
+            lintResult: {
+              errors: chat.lintResult.errors,
+              summary: chat.lintResult.summary,
+            },
+          });
+          break;
+        }
+
+        case 'dark-mode': {
+          chat.addMessage({ kind: 'ai-text', content: 'Comparing variable modes...' });
+          post('compare-modes');
+          break;
+        }
+
+        case 'token-audit': {
+          chat.addMessage({ kind: 'ai-text', content: 'Running token audit (DTCG compliance + variable collection)...' });
+          post('check-dtcg-compliance');
+          post('collect-variables');
+          break;
+        }
       }
     },
     [chat, post, componentName, analysisMode]
@@ -648,6 +782,14 @@ export default function App() {
         />
       )}
 
+      {/* Team config panel (overlay) */}
+      {showTeamConfig && (
+        <TeamConfigPanel
+          initialConfig={teamConfig as any}
+          onClose={() => setShowTeamConfig(false)}
+        />
+      )}
+
       {/* Top analyze bar (shown when no results yet) */}
       {chat.messages.length === 0 && !chat.isAnalyzing && (
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
@@ -669,6 +811,18 @@ export default function App() {
             title="Sweep all top-level frames on the page"
           >
             Sweep Page
+          </button>
+          <button
+            onClick={() => setShowTeamConfig(true)}
+            className="shrink-0 w-8 h-8 flex items-center justify-center text-fg-tertiary hover:text-fg rounded-md hover:bg-bg-hover transition-colors"
+            title="Team Config"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
           </button>
           <button
             onClick={() => setShowSettings(true)}

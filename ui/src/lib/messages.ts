@@ -235,7 +235,20 @@ export type PluginEvent =
   | { type: 'diff-result'; data: DiffResultData }
   | { type: 'page-sweep-progress'; data: { current: number; total: number; frameName: string } }
   | { type: 'page-sweep-result'; data: PageSweepRawData }
-  | { type: 'selection-mini-score'; data: MiniScoreData };
+  | { type: 'selection-mini-score'; data: MiniScoreData }
+  | { type: 'design-debt-result'; data: DesignDebtScore }
+  | { type: 'variable-system-result'; data: VariableSystemReport }
+  | { type: 'variable-system-error'; data: { error: string } }
+  | { type: 'dtcg-compliance-result'; data: DTCGComplianceResult }
+  | { type: 'dtcg-compliance-error'; data: { error: string } }
+  | { type: 'mode-comparison-result'; data: ModeComparisonData }
+  | { type: 'mode-comparison-error'; data: { error: string } }
+  | { type: 'realtime-lint-update'; data: { errors: LintError[]; changedNodeIds: string[] } }
+  | { type: 'team-config-loaded'; data: { config: unknown; settings: unknown } }
+  | { type: 'team-config-saved'; data: { success: boolean; error?: string } }
+  | { type: 'dark-mode-card-result'; data: DarkModeResult }
+  | { type: 'extended-lint-result'; data: Record<string, unknown> }
+  | { type: 'extended-lint-error'; data: { error: string } };
 
 // Flow Analysis Types
 export interface FlowGraphIssue {
@@ -342,6 +355,25 @@ export interface BaselineMetaData {
   timestamp: number;
   nodeName: string;
   overall: number;
+}
+
+// ── Design Debt Score Types ──────────────────────────────────
+
+export interface DesignDebtScore {
+  overall: number;
+  components: {
+    orphanedStyles: { count: number; score: number };
+    detachedInstances: { count: number; score: number };
+    hardcodedValues: { count: number; score: number };
+    namingViolations: { count: number; score: number };
+    missingAutoLayout: { count: number; score: number };
+    inconsistentSpacing: { count: number; score: number };
+  };
+  trend?: {
+    previousScore: number;
+    delta: number;
+    direction: 'improving' | 'stable' | 'degrading';
+  };
 }
 
 // ── Variable System & DTCG Compliance Types ──────────────────

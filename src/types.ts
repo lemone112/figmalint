@@ -235,7 +235,9 @@ export type UIMessageType =
   | 'enable-realtime-lint'
   | 'disable-realtime-lint'
   // Design debt
-  | 'calculate-design-debt';
+  | 'calculate-design-debt'
+  // Extended lint checks (8 new modules)
+  | 'run-extended-lint';
 
 // Auto-fix Types
 export interface FixRequest {
