@@ -12,7 +12,7 @@ services:
     restart: always
 
   caddy:
-    image: caddy:2
+    image: caddy:2.9-alpine
     ports:
       - "80:80"
       - "443:443"

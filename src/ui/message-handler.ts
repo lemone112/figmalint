@@ -23,17 +23,20 @@ import {
   findBestMatchingVariable,
   FixPreview,
   FixResult,
-} from '../fixes/token-fixer';
+} from '../fix/token-fixer';
 import {
   previewRename,
   renameLayer,
   suggestLayerName,
   RenamePreview,
-} from '../fixes/naming-fixer';
+} from '../fix/naming-fixer';
 import { FixRequest, FixPreviewRequest, BatchFixRequest, LintSettings } from '../types';
 import { exportScreenshot } from '../extract/screenshot';
 import { buildFlowGraph, analyzeFlowGraph } from '../flow/graph-builder';
 import { checkCrossScreenConsistency } from '../flow/cross-screen-checks';
+import { saveBaseline, loadBaseline, deleteBaseline, getBaselineMeta } from '../baseline/storage';
+import { computeDiff } from '../baseline/diff-engine';
+import type { BaselineSnapshot, ErrorDigest } from '../baseline/storage';
 import { fixSpacingToNearest, fixAllSpacingOnNode } from '../fix/fix-spacing';
 import { fixRadiusToNearest } from '../fix/fix-radius';
 import { renameLayerById } from '../fix/rename-layer';
@@ -44,6 +47,8 @@ import {
   ignoreError,
   ignoreAllOfType,
   clearIgnored,
+  getIgnoredState,
+  restoreIgnoredState,
   findNodesWithSameValue,
   DEFAULT_LINT_SETTINGS,
 } from '../core/design-lint';
@@ -85,7 +90,8 @@ const consistencyEngine = new ComponentConsistencyEngine({
  */
 export async function handleUIMessage(msg: PluginMessage): Promise<void> {
   const { type, data } = msg;
-  console.log('Received message:', type, data);
+  const logType = type === 'save-api-key' ? `${type} [redacted]` : type;
+  console.log('Received message:', logType);
 
   try {
     switch (type as UIMessageType) {
@@ -202,6 +208,19 @@ export async function handleUIMessage(msg: PluginMessage): Promise<void> {
         break;
       case 'analyze-flow':
         await handleAnalyzeFlow();
+        break;
+      // Baseline & Diff handlers
+      case 'save-baseline':
+        handleSaveBaseline(data);
+        break;
+      case 'load-baseline':
+        handleLoadBaseline(data);
+        break;
+      case 'compare-baseline':
+        handleCompareBaseline(data);
+        break;
+      case 'delete-baseline':
+        handleDeleteBaseline(data);
         break;
       default:
         console.warn('Unknown message type:', type);
@@ -493,7 +512,7 @@ async function handleBatchAnalysis(nodes: readonly SceneNode[], _options: Enhanc
         ];
 
         // Generate component hash
-        const componentHash = consistencyEngine.generateComponentHash(componentContext, allTokens);
+        const componentHash = consistencyEngine.generateComponentHash(componentContext, allTokens, currentLintSettings as any);
 
         // Check for cached analysis first
         const cachedAnalysis = consistencyEngine.getCachedAnalysis(componentHash);
@@ -978,32 +997,58 @@ Respond naturally and helpfully to the user's question.`;
 
 let currentLintSettings: LintSettings = { ...DEFAULT_LINT_SETTINGS };
 
+/** Snapshot of node IDs from the original lint scope, used for consistent re-scans. */
+let lintScopeNodeIds: string[] | null = null;
+
 function handleRunDesignLint(data?: any): void {
   const settings = data?.settings || currentLintSettings;
+  // On first run or explicit re-scan, capture scope from current selection
+  if (!lintScopeNodeIds || data?.resetScope) {
+    lintScopeNodeIds = figma.currentPage.selection.map(n => n.id);
+  }
+  // Restore the original lint scope before running
+  const nodes = lintScopeNodeIds
+    .map(id => figma.getNodeById(id))
+    .filter((n): n is SceneNode => n !== null && n.type !== 'DOCUMENT' && n.type !== 'PAGE');
+  if (nodes.length > 0) {
+    figma.currentPage.selection = nodes;
+  }
   const result = lintSelection(settings);
   sendMessageToUI('design-lint-result', result);
 }
 
+/** Persist ignored state to document-level plugin data so it survives restarts. */
+function persistIgnoredState(): void {
+  try {
+    const state = getIgnoredState();
+    figma.root.setPluginData('ignoredState', JSON.stringify(state));
+  } catch {
+    // Best-effort — don't break lint flow if persistence fails
+  }
+}
+
 function handleLintIgnoreNode(data: { nodeId: string }): void {
   ignoreNode(data.nodeId);
-  // Re-run lint to update results
+  persistIgnoredState();
   handleRunDesignLint();
 }
 
 function handleLintIgnoreError(data: { nodeId: string; errorType: string; value?: string }): void {
   ignoreError(data.nodeId, data.errorType as any, data.value);
+  persistIgnoredState();
   handleRunDesignLint();
 }
 
 function handleLintIgnoreAllOfType(data: { errorType: string }): void {
-  // Get current results first, then ignore all matching
   const result = lintSelection(currentLintSettings);
   ignoreAllOfType(result.errors, data.errorType as any);
+  persistIgnoredState();
   handleRunDesignLint();
 }
 
 function handleLintClearIgnored(): void {
   clearIgnored();
+  persistIgnoredState();
   handleRunDesignLint();
 }
 
@@ -1081,7 +1126,8 @@ function handleLoadTeamConfig(): void {
     const raw = figma.root.getSharedPluginData('figmalint', 'config');
     if (raw) {
       const config = JSON.parse(raw);
-      // Merge team config into current lint settings
+      // Reset to defaults before applying team config to prevent stale fields
+      currentLintSettings = { ...DEFAULT_LINT_SETTINGS };
       if (config.scales?.spacing) {
         currentLintSettings.spacingScale = config.scales.spacing;
       }
@@ -1168,12 +1214,34 @@ async function handleExportScreenshot(data: { nodeId?: string }): Promise<void> 
     }
 
     const base64 = await exportScreenshot(node);
+    const hasAutoLayout = 'layoutMode' in node && node.layoutMode !== 'NONE';
+    const childCount = 'children' in node ? (node as FrameNode).children.length : 0;
+
+    // Extract token analysis summary for the AI review
+    let tokenSummary: { totalTokens: number; boundToVariables: number; boundToStyles: number; hardCoded: number } | undefined;
+    try {
+      const tokenData = await extractDesignTokensFromNode(node);
+      const allTokens = [...tokenData.colors, ...tokenData.spacing, ...tokenData.typography, ...tokenData.effects, ...tokenData.borders];
+      tokenSummary = {
+        totalTokens: allTokens.length,
+        boundToVariables: allTokens.filter(t => t.source === 'figma-variable').length,
+        boundToStyles: allTokens.filter(t => t.source === 'figma-style').length,
+        hardCoded: allTokens.filter(t => t.source === 'hard-coded').length,
+      };
+    } catch {
+      // Token extraction is best-effort — don't block screenshot
+    }
+
     sendMessageToUI('screenshot-result', {
       nodeId: node.id,
       nodeName: node.name,
+      nodeType: node.type,
       screenshot: base64,
       width: node.width,
       height: node.height,
+      hasAutoLayout,
+      childCount,
+      tokenSummary,
     });
   } catch (error) {
     console.warn('Could not export screenshot:', error);
@@ -1322,6 +1390,15 @@ async function handleBatchFixV2(data: { fixes: BatchFixAction[] }): Promise<void
 }
 
 function handleRescanLint(): void {
+  // Restore original lint scope for consistent re-scans
+  if (lintScopeNodeIds) {
+    const nodes = lintScopeNodeIds
+      .map(id => figma.getNodeById(id))
+      .filter((n): n is SceneNode => n !== null && n.type !== 'DOCUMENT' && n.type !== 'PAGE');
+    if (nodes.length > 0) {
+      figma.currentPage.selection = nodes;
+    }
+  }
   const result = lintSelection(currentLintSettings);
   sendMessageToUI('design-lint-result', result);
   sendMessageToUI('rescan-complete', {
@@ -1449,6 +1526,18 @@ export async function initializePlugin(): Promise<void> {
 
     console.log(`Plugin initialized with provider: ${selectedProvider}, model: ${selectedModel}`);
 
+    // Restore persisted ignore state from document
+    try {
+      const raw = figma.root.getPluginData('ignoredState');
+      if (raw) {
+        const state = JSON.parse(raw);
+        restoreIgnoredState(state);
+        console.log(`Restored ${state.nodeIds?.length || 0} ignored nodes, ${state.errorKeys?.length || 0} ignored errors`);
+      }
+    } catch {
+      // Ignore parse errors — start fresh
+    }
+
     // Initialize design systems knowledge in background
     console.log('🔄 Initializing design systems knowledge...');
     consistencyEngine.loadDesignSystemsKnowledge()
@@ -1463,6 +1552,100 @@ export async function initializePlugin(): Promise<void> {
   } catch (error) {
     console.error('Error initializing plugin:', error);
   }
+}
+
+// ============================================================================
+// Baseline & Diff Handler Functions
+// ============================================================================
+
+/**
+ * Save the current lint result + score as a baseline snapshot in pluginData.
+ * Expects `data` to contain the full lint result and score breakdown from the UI.
+ */
+function handleSaveBaseline(data: {
+  nodeId: string;
+  nodeName: string;
+  overall: number;
+  grade: string;
+  categories: Record<string, { score: number; passed: number; failed: number }>;
+  errors: Array<{ errorType: string; severity?: string; nodeId: string; message: string }>;
+  summary: { totalErrors: number; totalNodes: number; nodesWithErrors: number; byType: Record<string, number> };
+}): void {
+  const snapshot: BaselineSnapshot = {
+    version: 1,
+    timestamp: Date.now(),
+    nodeId: data.nodeId,
+    nodeName: data.nodeName,
+    overall: data.overall,
+    grade: data.grade,
+    categories: data.categories,
+    summary: data.summary,
+    errors: data.errors.map(e => ({
+      errorType: e.errorType,
+      severity: e.severity || 'warning',
+      nodeId: e.nodeId,
+      message: e.message,
+    })),
+  };
+
+  saveBaseline(snapshot);
+
+  sendMessageToUI('baseline-saved', {
+    nodeId: data.nodeId,
+    nodeName: data.nodeName,
+    timestamp: snapshot.timestamp,
+    overall: data.overall,
+  });
+}
+
+/**
+ * Load baseline metadata for the given nodeId.
+ */
+function handleLoadBaseline(data: { nodeId: string }): void {
+  const meta = getBaselineMeta(data.nodeId);
+  sendMessageToUI('baseline-loaded', meta);
+}
+
+/**
+ * Compare current lint results against the saved baseline.
+ */
+function handleCompareBaseline(data: {
+  nodeId: string;
+  overall: number;
+  grade: string;
+  categories: Record<string, { score: number; passed: number; failed: number }>;
+  errors: Array<{ errorType: string; severity?: string; nodeId: string; message: string }>;
+  summary: { totalErrors: number; totalNodes: number; nodesWithErrors: number; byType: Record<string, number> };
+}): void {
+  const baseline = loadBaseline(data.nodeId);
+  if (!baseline) {
+    sendMessageToUI('diff-result', null);
+    return;
+  }
+
+  const currentErrors: ErrorDigest[] = data.errors.map(e => ({
+    errorType: e.errorType,
+    severity: e.severity || 'warning',
+    nodeId: e.nodeId,
+    message: e.message,
+  }));
+
+  const diff = computeDiff(baseline, {
+    overall: data.overall,
+    grade: data.grade,
+    categories: data.categories,
+    errors: currentErrors,
+    summary: data.summary,
+  });
+
+  sendMessageToUI('diff-result', diff);
+}
+
+/**
+ * Delete the saved baseline for a given nodeId.
+ */
+function handleDeleteBaseline(data: { nodeId: string }): void {
+  deleteBaseline(data.nodeId);
 }
 
 // ============================================================================

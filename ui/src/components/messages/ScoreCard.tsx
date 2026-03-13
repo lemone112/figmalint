@@ -58,11 +58,15 @@ export default function ScoreCard({ data }: ScoreCardProps) {
       </div>
 
       <div className="space-y-1">
-        <CategoryBar label="Tokens" weight="30%" score={data.tokens.score} failed={data.tokens.failed} />
-        <CategoryBar label="Spacing" weight="20%" score={data.spacing.score} failed={data.spacing.failed} />
-        <CategoryBar label="Layout" weight="10%" score={data.layout.score} failed={data.layout.failed} />
-        <CategoryBar label="Accessibility" weight="30%" score={data.accessibility.score} failed={data.accessibility.failed} />
-        <CategoryBar label="Naming" weight="10%" score={data.naming.score} failed={data.naming.failed} />
+        <CategoryBar label="Tokens" weight="20%" score={data.tokens.score} failed={data.tokens.failed} />
+        <CategoryBar label="Accessibility" weight="20%" score={data.accessibility.score} failed={data.accessibility.failed} />
+        <CategoryBar label="Spacing" weight="12%" score={data.spacing.score} failed={data.spacing.failed} />
+        <CategoryBar label="Visual Quality" weight="10%" score={data.visualQuality.score} failed={data.visualQuality.failed} />
+        <CategoryBar label="Conversion" weight="10%" score={data.conversion.score} failed={data.conversion.failed} />
+        <CategoryBar label="Microcopy" weight="8%" score={data.microcopy.score} failed={data.microcopy.failed} />
+        <CategoryBar label="Cognitive" weight="8%" score={data.cognitive.score} failed={data.cognitive.failed} />
+        <CategoryBar label="Layout" weight="8%" score={data.layout.score} failed={data.layout.failed} />
+        <CategoryBar label="Naming" weight="4%" score={data.naming.score} failed={data.naming.failed} />
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { ChatMessage, ChatMessageType, LintResult, LintError, ScoreBreakdown, CategoryScore, ScoreGrade, AiReviewData, ReferoComparisonData } from '../lib/messages';
+import type { ChatMessage, ChatMessageType, LintResult, LintError, ScoreBreakdown, CategoryScore, ScoreGrade, AiReviewData, ReferoComparisonData, DiffResultData, BaselineMetaData } from '../lib/messages';
 
 let messageIdCounter = 0;
 function nextId(): string {
@@ -38,7 +38,7 @@ const GENERIC_NAME_RE = /^(Frame|Group|Rectangle|Ellipse|Vector|Line|Polygon|Sta
 
 /**
  * Compute Design Health Score — purely deterministic, no AI.
- * 5 categories: Tokens (30%), Spacing (20%), Layout (10%), Accessibility (30%), Naming (10%).
+ * 9 categories: Tokens (20%), A11y (20%), Spacing (12%), Visual (10%), Microcopy (8%), Conversion (10%), Cognitive (8%), Layout (8%), Naming (4%).
  */
 function computeScoreBreakdown(result: LintResult): ScoreBreakdown {
   const total = result.summary.totalNodes || 1;
@@ -70,16 +70,36 @@ function computeScoreBreakdown(result: LintResult): ScoreBreakdown {
   );
   const naming = severityScore(namingErrors, total);
 
-  // Weighted average (30/20/10/30/10)
+  // Visual Quality
+  const visualQualityErrors = result.errors.filter(e => e.errorType === 'visualQuality');
+  const visualQuality = severityScore(visualQualityErrors, total);
+
+  // Microcopy
+  const microcopyErrors = result.errors.filter(e => e.errorType === 'microcopy');
+  const microcopy = severityScore(microcopyErrors, total);
+
+  // Conversion
+  const conversionErrors = result.errors.filter(e => e.errorType === 'conversion');
+  const conversion = severityScore(conversionErrors, total);
+
+  // Cognitive
+  const cognitiveErrors = result.errors.filter(e => e.errorType === 'cognitive');
+  const cognitive = severityScore(cognitiveErrors, total);
+
+  // Weighted average (20/20/12/10/8/10/8/8/4) — 9 categories, aligned with backend
   const overall = Math.round(
-    tokens.score * 0.30 +
-    spacing.score * 0.20 +
-    layout.score * 0.10 +
-    accessibility.score * 0.30 +
-    naming.score * 0.10
+    tokens.score * 0.20 +
+    accessibility.score * 0.20 +
+    spacing.score * 0.12 +
+    visualQuality.score * 0.10 +
+    microcopy.score * 0.08 +
+    conversion.score * 0.10 +
+    cognitive.score * 0.08 +
+    layout.score * 0.08 +
+    naming.score * 0.04
   );
 
-  return { overall, grade: getGrade(overall), tokens, spacing, layout, accessibility, naming };
+  return { overall, grade: getGrade(overall), tokens, spacing, layout, accessibility, naming, visualQuality, microcopy, conversion, cognitive };
 }
 
 export interface ChatState {
@@ -91,6 +111,8 @@ export interface ChatState {
   sessionId: string | null;
   aiReview: AiReviewData | null;
   isStreaming: boolean;
+  baselineMeta: BaselineMetaData | null;
+  lastDiff: DiffResultData | null;
 }
 
 export function useChat() {
@@ -103,6 +125,8 @@ export function useChat() {
     sessionId: null,
     aiReview: null,
     isStreaming: false,
+    baselineMeta: null,
+    lastDiff: null,
   });
 
   const addMessage = useCallback((msg: ChatMessageType) => {
@@ -221,44 +245,47 @@ export function useChat() {
 
   const handleRescan = useCallback((result: LintResult) => {
     const newScore = computeScoreBreakdown(result);
-    const oldOverall = state.score?.overall || 0;
 
-    const messages: ChatMessage[] = [];
+    setState(prev => {
+      const oldOverall = prev.score?.overall || 0;
 
-    if (result.summary.totalErrors === 0) {
-      messages.push(createMessage({
-        kind: 'ai-text',
-        content: 'All issues resolved! Component is clean.',
-      }));
-    } else {
-      messages.push(createMessage({
-        kind: 'score-update',
-        data: {
-          oldScore: oldOverall,
-          newScore: newScore.overall,
-          issuesRemaining: result.summary.totalErrors,
-        },
-      }));
-    }
+      const msgs: ChatMessage[] = [];
 
-    messages.push(createMessage({ kind: 'score-card', data: newScore }));
+      if (result.summary.totalErrors === 0) {
+        msgs.push(createMessage({
+          kind: 'ai-text',
+          content: 'All issues resolved! Component is clean.',
+        }));
+      } else {
+        msgs.push(createMessage({
+          kind: 'score-update',
+          data: {
+            oldScore: oldOverall,
+            newScore: newScore.overall,
+            issuesRemaining: result.summary.totalErrors,
+          },
+        }));
+      }
 
-    if (result.errors.length > 0) {
-      const fixableCount = result.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length;
-      messages.push(createMessage({
-        kind: 'issues-list',
-        data: result.errors,
-        fixableCount,
-      }));
-    }
+      msgs.push(createMessage({ kind: 'score-card', data: newScore }));
 
-    setState(prev => ({
-      ...prev,
-      lintResult: result,
-      score: newScore,
-      messages: [...prev.messages, ...messages],
-    }));
-  }, [state.score]);
+      if (result.errors.length > 0) {
+        const fixableCount = result.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length;
+        msgs.push(createMessage({
+          kind: 'issues-list',
+          data: result.errors,
+          fixableCount,
+        }));
+      }
+
+      return {
+        ...prev,
+        lintResult: result,
+        score: newScore,
+        messages: [...prev.messages, ...msgs],
+      };
+    });
+  }, []);
 
   const handleAiReview = useCallback((data: {
     sessionId: string;
@@ -331,7 +358,8 @@ export function useChat() {
       isAnalyzing: false,
       sessionId: data.sessionId,
       aiReview: data.aiReview,
-      messages: [...prev.messages, ...messages],
+      // Remove phase indicator messages, replace with actual results
+      messages: [...prev.messages.filter(m => m.message.kind !== 'analysis-phase'), ...messages],
     }));
   }, []);
 
@@ -371,6 +399,35 @@ export function useChat() {
     });
   }, []);
 
+  const handleBaselineSaved = useCallback((data: { nodeId: string; nodeName: string; timestamp: number; overall: number }) => {
+    setState(prev => ({
+      ...prev,
+      baselineMeta: { timestamp: data.timestamp, nodeName: data.nodeName, overall: data.overall },
+      messages: [
+        ...prev.messages,
+        createMessage({
+          kind: 'baseline-saved',
+          data,
+        }),
+      ],
+    }));
+  }, []);
+
+  const handleBaselineLoaded = useCallback((meta: BaselineMetaData | null) => {
+    setState(prev => ({ ...prev, baselineMeta: meta }));
+  }, []);
+
+  const handleDiffResult = useCallback((data: DiffResultData) => {
+    setState(prev => ({
+      ...prev,
+      lastDiff: data,
+      messages: [
+        ...prev.messages,
+        createMessage({ kind: 'diff-result', data }),
+      ],
+    }));
+  }, []);
+
   const clearMessages = useCallback(() => {
     setState({
       messages: [],
@@ -381,7 +438,17 @@ export function useChat() {
       sessionId: null,
       aiReview: null,
       isStreaming: false,
+      baselineMeta: null,
+      lastDiff: null,
     });
+  }, []);
+
+  const clearAnalysisPhase = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      isAnalyzing: false,
+      messages: prev.messages.filter(m => m.message.kind !== 'analysis-phase'),
+    }));
   }, []);
 
   return {
@@ -397,6 +464,10 @@ export function useChat() {
     appendStreamChunk,
     finishStream,
     clearMessages,
+    clearAnalysisPhase,
+    handleBaselineSaved,
+    handleBaselineLoaded,
+    handleDiffResult,
   };
 }
 
@@ -417,6 +488,8 @@ function buildLintSummaryText(result: LintResult, score: ScoreBreakdown): string
   if (byType.spacing > 0) parts.push(`${byType.spacing} off-grid spacing`);
   if (byType.autoLayout > 0) parts.push(`${byType.autoLayout} missing auto-layout`);
   if (byType.accessibility > 0) parts.push(`${byType.accessibility} accessibility issues`);
+  if (byType.visualQuality > 0) parts.push(`${byType.visualQuality} visual quality issues`);
+  if (byType.microcopy > 0) parts.push(`${byType.microcopy} microcopy issues`);
 
   const fixable = result.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length;
 

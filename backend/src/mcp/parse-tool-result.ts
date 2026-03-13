@@ -1,4 +1,22 @@
 /**
+ * Wrap a promise with a timeout. Rejects if the promise doesn't settle
+ * within `ms` milliseconds.
+ */
+export function withTimeout<T>(
+  promise: Promise<T>,
+  ms = 15_000,
+  label = 'MCP call',
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/**
  * Shared MCP tool result parser.
  * Extracts structured data from MCP JSON-RPC responses.
  */

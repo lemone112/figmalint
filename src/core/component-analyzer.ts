@@ -5,7 +5,7 @@ import { extractTextContent, getAllChildNodes, getLuminance, getContrastRatio, f
 import { extractDesignTokensFromNode } from './token-analyzer';
 import { extractJSONFromResponse, createEnhancedMetadataPrompt, filterDevelopmentRecommendations } from '../api/claude';
 import { callProvider, ProviderId } from '../api/providers';
-import { analyzeNamingIssues } from '../fixes/naming-fixer';
+import { analyzeNamingIssues } from '../fix/naming-fixer';
 import { runDesignLint, DEFAULT_LINT_SETTINGS } from './design-lint';
 
 /**

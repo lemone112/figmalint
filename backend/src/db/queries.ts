@@ -12,6 +12,7 @@ export function getDb(): Database.Database {
     const dbPath = process.env.DATABASE_PATH || './data/sessions.db';
     db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
+    db.pragma('busy_timeout = 5000');
 
     // Initialize schema
     const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
@@ -73,17 +74,38 @@ export function updateSession(id: string, updates: Partial<Record<string, unknow
 
 export function appendConversation(id: string, role: string, content: string): void {
   const db = getDb();
-  const session = getSession(id);
-  if (!session) return;
+  const newMessage = JSON.stringify({ role, content, timestamp: Date.now() });
 
-  let conversation: Array<{ role: string; content: string; timestamp: number }> = [];
-  try {
-    const parsed = JSON.parse(session.conversation || '[]');
-    conversation = Array.isArray(parsed) ? parsed : [];
-  } catch {
-    conversation = [];
-  }
-  conversation.push({ role, content, timestamp: Date.now() });
-  db.prepare('UPDATE sessions SET conversation = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-    .run(JSON.stringify(conversation), id);
+  // Use a transaction with immediate locking to prevent lost updates
+  // under concurrent requests. The read + modify + write is atomic.
+  const append = db.transaction(() => {
+    const session = db.prepare('SELECT conversation FROM sessions WHERE id = ?').get(id) as
+      | { conversation: string }
+      | undefined;
+    if (!session) return;
+
+    let conversation: Array<{ role: string; content: string; timestamp: number }> = [];
+    try {
+      const parsed = JSON.parse(session.conversation || '[]');
+      conversation = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      conversation = [];
+    }
+    conversation.push(JSON.parse(newMessage));
+    db.prepare('UPDATE sessions SET conversation = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(JSON.stringify(conversation), id);
+  });
+
+  append.immediate();
+}
+
+/**
+ * Delete sessions older than the given TTL (default 7 days).
+ * Returns the number of deleted sessions.
+ */
+export function cleanupExpiredSessions(ttlMs = 7 * 24 * 60 * 60 * 1000): number {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - ttlMs).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+  const result = db.prepare('DELETE FROM sessions WHERE updated_at < ?').run(cutoff);
+  return result.changes;
 }

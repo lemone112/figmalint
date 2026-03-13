@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 interface SettingsPanelProps {
   hasApiKey: boolean;
@@ -29,6 +29,8 @@ export default function SettingsPanel({
   const [provider, setProvider] = useState('anthropic');
   const [saving, setSaving] = useState(false);
 
+  const panelRef = useRef<HTMLDivElement>(null);
+
   const handleSave = useCallback(() => {
     if (!apiKey.trim()) return;
     setSaving(true);
@@ -39,16 +41,62 @@ export default function SettingsPanel({
     }, 500);
   }, [apiKey, provider, onSaveApiKey]);
 
+  // Focus trap + Escape key + auto-focus first element
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    // Auto-focus the first focusable element (close button)
+    const initialFocusable = panel.querySelectorAll<HTMLElement>(focusableSelector);
+    if (initialFocusable.length > 0) {
+      initialFocusable[0].focus();
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+
+      if (e.key !== 'Tab') return;
+
+      const focusables = panel.querySelectorAll<HTMLElement>(focusableSelector);
+      if (focusables.length === 0) return;
+
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    panel.addEventListener('keydown', handleKeyDown);
+    return () => panel.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="absolute inset-0 z-50 bg-bg flex flex-col">
+    <div ref={panelRef} role="dialog" aria-modal="true" aria-label="Settings" className="absolute inset-0 z-50 bg-bg flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <span className="text-12 font-medium">Settings</span>
         <button
           onClick={onClose}
           className="w-6 h-6 flex items-center justify-center text-fg-tertiary hover:text-fg rounded-md hover:bg-bg-hover transition-colors"
+          aria-label="Close settings"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -97,6 +145,7 @@ export default function SettingsPanel({
                 placeholder={PROVIDERS.find(p => p.id === provider)?.placeholder}
                 className="w-full px-2 py-1.5 text-12 bg-bg-secondary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-fg-brand"
                 onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
+                aria-label="API key"
               />
               <button
                 onClick={handleSave}

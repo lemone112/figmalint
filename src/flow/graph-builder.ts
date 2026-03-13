@@ -133,9 +133,17 @@ export function buildFlowGraph(page?: PageNode): FlowGraph {
     }
   }
 
-  // Dead ends: frames with no outgoing connections
+  // Frames that have BACK/CLOSE edges are not truly dead ends
+  const hasBackEdge = new Set<string>();
+  for (const edge of validEdges) {
+    if (edge.destinationFrameId === '__BACK__') {
+      hasBackEdge.add(edge.sourceFrameId);
+    }
+  }
+
+  // Dead ends: frames with no outgoing connections AND no BACK navigation
   const deadEnds = frames
-    .filter(f => (outgoing.get(f.id)?.size || 0) === 0)
+    .filter(f => (outgoing.get(f.id)?.size || 0) === 0 && !hasBackEdge.has(f.id))
     .map(f => f.id);
 
   // Orphans: frames with no incoming connections AND not entry points

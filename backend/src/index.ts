@@ -1,13 +1,17 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import { bodyLimit } from 'hono/body-limit';
 import { serve } from '@hono/node-server';
+import { bearerAuth } from './middleware/auth.js';
+import { rateLimit } from './middleware/rate-limit.js';
 import health from './routes/health.js';
 import analyze from './routes/analyze.js';
 import chat from './routes/chat.js';
 import stream from './routes/stream.js';
 import session from './routes/session.js';
 import flow from './routes/flow.js';
+import { cleanupExpiredSessions } from './db/queries.js';
 import { mkdirSync, existsSync } from 'fs';
 import { dirname } from 'path';
 
@@ -18,23 +22,41 @@ if (!existsSync(dbDir)) {
   mkdirSync(dbDir, { recursive: true });
 }
 
+// Validate required env vars at startup
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn('[WARN] ANTHROPIC_API_KEY is not set. AI-powered analysis will be unavailable (lint-only mode).');
+}
+
 const app = new Hono();
 
 // Middleware
 app.use('*', logger());
+
+// CORS must come before auth so preflight OPTIONS requests are handled
 app.use(
   '*',
   cors({
     // Figma plugin iframes send origin: null; also allow the plugin's backend domain
     origin: (origin) => {
-      if (!origin || origin === 'null') return 'null'; // Figma sandboxed iframe
+      // Figma plugin iframes send null origin — allow it
+      if (!origin || origin === 'null') return 'null';
       const allowed = ['https://api.figmalint.labpics.com', 'http://localhost:3000'];
-      return allowed.includes(origin) ? origin : 'null';
+      // Return the origin if allowed; empty string tells Hono to omit the header
+      return allowed.includes(origin) ? origin : '';
     },
     allowMethods: ['GET', 'POST', 'OPTIONS'],
-    allowHeaders: ['Content-Type'],
+    allowHeaders: ['Content-Type', 'Authorization'],
   })
 );
+
+// Body size limit — base64 screenshots can be large but must be capped to prevent OOM
+app.use('/api/*', bodyLimit({ maxSize: 25 * 1024 * 1024 }));
+
+// Rate limiting — sliding window per IP (before auth so unauthenticated requests are rate-limited)
+app.use('/api/*', rateLimit());
+
+// Bearer auth — when BACKEND_AUTH_TOKEN is set, require it on all /api/* except /api/health
+app.use('/api/*', bearerAuth());
 
 // Routes
 app.route('/api', health);
@@ -48,6 +70,18 @@ app.route('/api', flow);
 app.get('/', (c) => c.json({ name: 'FigmaLint Design Review API', version: '1.0.0' }));
 
 const port = parseInt(process.env.PORT || '3000', 10);
+
+// Clean up expired sessions on startup, then periodically every 6 hours
+try {
+  const deleted = cleanupExpiredSessions();
+  if (deleted > 0) console.log(`Cleaned up ${deleted} expired sessions.`);
+} catch { /* DB may not be initialized yet */ }
+setInterval(() => {
+  try {
+    const deleted = cleanupExpiredSessions();
+    if (deleted > 0) console.log(`Cleaned up ${deleted} expired sessions.`);
+  } catch { /* ignore */ }
+}, 6 * 60 * 60 * 1000).unref();
 
 console.log(`Starting FigmaLint backend on port ${port}...`);
 serve({ fetch: app.fetch, port });

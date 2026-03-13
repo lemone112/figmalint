@@ -53,8 +53,16 @@ scripts/test-*.js
 .serena/
 settings.local.json
 
-# Development UI files
-# ui-enhanced.html is now our main UI file, not a dev file
+# Data / SQLite databases
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Environment variables
+.env
+.env.*
+!.env.example
 
 # Personal/Internal documentation
 MCP_INTEGRATION_SUCCESS.md

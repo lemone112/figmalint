@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { withTimeout } from './parse-tool-result.js';
 
 const DESIGN_SYSTEMS_MCP_URL =
   process.env.DESIGN_SYSTEMS_MCP_URL || 'https://design-systems-mcp.southleft.com/mcp';
@@ -25,7 +26,7 @@ export async function getDesignSystemsClient(): Promise<Client | null> {
       new URL(DESIGN_SYSTEMS_MCP_URL),
     );
 
-    await newClient.connect(transport);
+    await withTimeout(newClient.connect(transport), 15_000, 'Design Systems MCP connect');
     client = newClient;
     console.log('Connected to Design Systems MCP server');
     return client;

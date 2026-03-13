@@ -2,8 +2,7 @@ import { searchScreens, getDesignGuidance, type ReferoScreen, type DesignGuidanc
 import { buildReferoComparePrompt } from '../prompts/refero-compare.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from '../prompts/system.js';
-
-const MODEL = 'claude-sonnet-4-20250514';
+import { MODEL } from './claude.js';
 
 export interface ReferoComparison {
   matchingPatterns: Array<{ pattern: string; frequency: string }>;

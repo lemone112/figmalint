@@ -31,6 +31,7 @@ export default {
         },
       },
       fontSize: {
+        '10': ['10px', { lineHeight: '14px' }],
         '11': ['11px', '16px'],
         '12': ['12px', '16px'],
         '13': ['13px', '20px'],

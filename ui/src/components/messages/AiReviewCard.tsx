@@ -46,7 +46,10 @@ export default function AiReviewCard({ data }: AiReviewCardProps) {
 
   return (
     <div className="bg-bg-secondary rounded-xl p-3 space-y-2">
-      <span className="text-12 font-medium">AI Design Review</span>
+      <div className="flex items-center gap-2">
+        <span className="text-12 font-medium">AI Design Review</span>
+        <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-bg-tertiary text-fg-tertiary">AI-generated</span>
+      </div>
 
       <div className="space-y-2">
         <CategoryRow label="Visual Hierarchy" category={data.visualHierarchy} />
@@ -70,6 +73,15 @@ export default function AiReviewCard({ data }: AiReviewCardProps) {
           ) : undefined}
         />
         <CategoryRow label="Color Harmony" category={data.colorHarmony} />
+        {data.visualBalance && (
+          <CategoryRow label="Visual Balance" category={data.visualBalance} />
+        )}
+        {data.microcopyQuality && (
+          <CategoryRow label="Microcopy Quality" category={data.microcopyQuality} />
+        )}
+        {data.cognitiveLoad && (
+          <CategoryRow label="Cognitive Load" category={data.cognitiveLoad} />
+        )}
       </div>
     </div>
   );

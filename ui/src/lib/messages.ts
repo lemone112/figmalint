@@ -100,6 +100,8 @@ export interface EnhancedAnalysisResult {
 }
 
 // Chat message types for the UI
+export type AnalysisPhase = 'lint' | 'screenshot' | 'ai-review' | 'refero';
+
 export type ChatMessageType =
   | { kind: 'ai-text'; content: string; streaming?: boolean }
   | { kind: 'user-text'; content: string }
@@ -112,7 +114,10 @@ export type ChatMessageType =
   | { kind: 'score-update'; data: { oldScore: number; newScore: number; issuesRemaining: number } }
   | { kind: 'ai-review'; data: AiReviewData }
   | { kind: 'refero-gallery'; data: ReferoComparisonData }
-  | { kind: 'flow-result'; data: FlowAnalysisData };
+  | { kind: 'analysis-phase'; phase: AnalysisPhase; done?: boolean }
+  | { kind: 'flow-result'; data: FlowAnalysisData }
+  | { kind: 'diff-result'; data: DiffResultData }
+  | { kind: 'baseline-saved'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } };
 
 export type AiRating = 'pass' | 'needs_improvement' | 'fail';
 
@@ -127,6 +132,9 @@ export interface AiReviewData {
   statesCoverage: AiReviewCategory & { missingStates: string[] };
   platformAlignment: AiReviewCategory & { detectedPlatform: string };
   colorHarmony: AiReviewCategory;
+  visualBalance?: AiReviewCategory;
+  microcopyQuality?: AiReviewCategory;
+  cognitiveLoad?: AiReviewCategory;
   recommendations: Array<{ title: string; description: string; severity: string }>;
   summary: string;
 }
@@ -167,6 +175,10 @@ export interface ScoreBreakdown {
   layout: CategoryScore;
   accessibility: CategoryScore;
   naming: CategoryScore;
+  visualQuality: CategoryScore;
+  microcopy: CategoryScore;
+  conversion: CategoryScore;
+  cognitive: CategoryScore;
 }
 
 export interface ActionButton {
@@ -194,8 +206,15 @@ export type PluginEvent =
   | { type: 'rescan-complete'; data: { totalErrors: number; nodesWithErrors: number } }
   | { type: 'api-key-status'; data: { hasKey: boolean; provider: string; model?: string } }
   | { type: 'api-key-saved'; data: { success: boolean } }
-  | { type: 'screenshot-result'; data: { nodeId: string; nodeName: string; screenshot: string; width: number; height: number } }
-  | { type: string; data: unknown };
+  | { type: 'screenshot-result'; data: { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number } }
+  | { type: 'selection-changed'; data: { hasSelection: boolean; nodeId: string | null; nodeName: string | null } }
+  | { type: 'screenshot-error'; data: { error: string } }
+  | { type: 'flow-analysis-started'; data: { status: string; progress?: number; total?: number } }
+  | { type: 'flow-analysis-result'; data: FlowAnalysisData }
+  | { type: 'flow-analysis-error'; data: { error: string } }
+  | { type: 'baseline-saved'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } }
+  | { type: 'baseline-loaded'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } | null }
+  | { type: 'diff-result'; data: DiffResultData };
 
 // Flow Analysis Types
 export interface FlowGraphIssue {
@@ -259,6 +278,49 @@ export interface FlowAnalysisData {
     recommendations: Array<{ title: string; description: string; severity: string; affectedFrames: string[] }>;
     summary: string;
   };
+}
+
+// ── Baseline & Diff Types ──────────────────────────────────
+
+export interface CategoryDeltaData {
+  category: string;
+  oldScore: number;
+  newScore: number;
+  delta: number;
+}
+
+export interface IssueDiffData {
+  errorType: string;
+  severity: string;
+  nodeId: string;
+  message: string;
+}
+
+export interface DiffResultData {
+  baselineTimestamp: number;
+  currentTimestamp: number;
+  scoreDelta: {
+    overall: number;
+    oldOverall: number;
+    newOverall: number;
+    categories: CategoryDeltaData[];
+  };
+  newIssues: IssueDiffData[];
+  fixedIssues: IssueDiffData[];
+  remainingIssues: IssueDiffData[];
+  summary: {
+    totalNew: number;
+    totalFixed: number;
+    totalRemaining: number;
+    oldTotal: number;
+    newTotal: number;
+  };
+}
+
+export interface BaselineMetaData {
+  timestamp: number;
+  nodeName: string;
+  overall: number;
 }
 
 // UI → Plugin message commands

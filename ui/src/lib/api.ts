@@ -34,6 +34,12 @@ export async function analyzeComponent(data: {
       hasAutoLayout: boolean;
       childCount: number;
     };
+    tokenSummary?: {
+      totalTokens: number;
+      boundToVariables: number;
+      boundToStyles: number;
+      hardCoded: number;
+    };
   };
   sessionId?: string;
   mode: 'quick' | 'deep';
@@ -99,13 +105,15 @@ export async function streamChat(
   message: string,
   onChunk: (text: string) => void,
   onDone: () => void,
-  onError: (error: string) => void
+  onError: (error: string) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   try {
     const resp = await fetch(`${backendUrl}/api/stream/${sessionId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
+      signal,
     });
 
     if (!resp.ok) {
@@ -125,6 +133,8 @@ export async function streamChat(
     let currentEvent = '';
 
     while (true) {
+      if (signal?.aborted) break;
+
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -160,6 +170,10 @@ export async function streamChat(
 
     onDone();
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      // Caller aborted — not a real error
+      return;
+    }
     onError(error instanceof Error ? error.message : 'Stream failed');
   }
 }

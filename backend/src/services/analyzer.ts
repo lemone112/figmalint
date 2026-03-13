@@ -1,17 +1,8 @@
 import { fetchDesignSystemContext, type SourceReference } from './design-knowledge.js';
 import { buildDesignKnowledgeSection } from '../prompts/design-knowledge.js';
-import { detectPageType, generateReview } from './claude.js';
+import { detectPageType, generateReview, getAnthropicClient } from './claude.js';
 import { runReferoComparison, type ReferoComparison } from './refero.js';
 import { startSession, loadSession, saveAnalysisResult, saveReferoResult } from './session.js';
-import Anthropic from '@anthropic-ai/sdk';
-
-let anthropicClient: Anthropic | null = null;
-function getAnthropicClient(): Anthropic {
-  if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  }
-  return anthropicClient;
-}
 
 export interface AnalyzeRequest {
   screenshot: string;
@@ -42,6 +33,12 @@ export interface AnalyzeRequest {
       height: number;
       hasAutoLayout: boolean;
       childCount: number;
+    };
+    tokenSummary?: {
+      totalTokens: number;
+      boundToVariables: number;
+      boundToStyles: number;
+      hardCoded: number;
     };
   };
   sessionId?: string;
@@ -101,11 +98,13 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
 
   // Build component info
   const meta = req.extractedData.metadata;
+  const ts = req.extractedData.tokenSummary;
   const componentInfo = [
     `Name: ${req.extractedData.componentName}`,
     req.extractedData.componentDescription ? `Description: ${req.extractedData.componentDescription}` : '',
-    meta ? `Type: ${meta.nodeType}, Size: ${meta.width}x${meta.height}, Children: ${meta.childCount}` : '',
+    meta ? `Type: ${meta.nodeType}, Size: ${meta.width}x${meta.height}, Auto-layout: ${meta.hasAutoLayout ? 'yes' : 'no'}, Children: ${meta.childCount}` : '',
     req.extractedData.states?.length ? `States: ${req.extractedData.states.join(', ')}` : '',
+    ts ? `Design tokens: ${ts.totalTokens} total (${ts.boundToVariables} variables, ${ts.boundToStyles} styles, ${ts.hardCoded} hard-coded)` : '',
   ].filter(Boolean).join('\n');
 
   // Phase 1a: page type + design knowledge in parallel (both fast)
@@ -167,7 +166,7 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
   }
 
   // Compute Design Health Score — severity-weighted, no AI component
-  // Weights: Tokens 25%, A11y 25%, Spacing 15%, Visual 10%, Microcopy 10%, Layout 10%, Naming 5%
+  // Weights aligned with UI: Tokens 25%, A11y 25%, Spacing 18%, Layout 10%, Naming 7%, Visual 8%, Microcopy 7%
   const SEVERITY_WEIGHT: Record<string, number> = { critical: 10, warning: 3, info: 1 };
   const errors = req.lintResult.errors;
   const total = Math.max(req.lintResult.summary.totalNodes, 1);

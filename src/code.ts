@@ -16,6 +16,19 @@ try {
 // Set up message handler
 figma.ui.onmessage = handleUIMessage;
 
+// Notify UI when selection changes so it can invalidate stale results
+figma.on('selectionchange', () => {
+  const sel = figma.currentPage.selection;
+  figma.ui.postMessage({
+    type: 'selection-changed',
+    data: {
+      hasSelection: sel.length > 0,
+      nodeId: sel.length > 0 ? sel[0].id : null,
+      nodeName: sel.length > 0 ? sel[0].name : null,
+    },
+  });
+});
+
 // Initialize plugin
 initializePlugin();
 

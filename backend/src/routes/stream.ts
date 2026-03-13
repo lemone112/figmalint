@@ -35,7 +35,7 @@ app.post('/stream/:sessionId', async (c) => {
 
   const history = getConversation(sessionId);
   const sessionContext = getSessionContext(sessionId);
-  const systemPrompt = buildFollowupPrompt(sessionContext, history);
+  const systemPrompt = buildFollowupPrompt(sessionContext);
 
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = history.map(m => ({
     role: m.role as 'user' | 'assistant',
@@ -62,9 +62,10 @@ app.post('/stream/:sessionId', async (c) => {
         data: JSON.stringify({ sessionId }),
       });
     } catch (error) {
+      console.error('Stream error:', error);
       await stream.writeSSE({
         event: 'error',
-        data: JSON.stringify({ error: error instanceof Error ? error.message : 'Stream failed' }),
+        data: JSON.stringify({ error: 'Stream failed. Please try again.' }),
       });
     }
   });

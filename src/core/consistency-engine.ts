@@ -26,7 +26,7 @@ export class ComponentConsistencyEngine {
   /**
    * Generate a deterministic hash for a component based on its structure
    */
-  generateComponentHash(context: ComponentContext, tokens: any[]): string {
+  generateComponentHash(context: ComponentContext, tokens: any[], lintSettings?: Record<string, unknown>): string {
     const hashInput = {
       name: context.name,
       type: context.type,
@@ -38,7 +38,9 @@ export class ComponentConsistencyEngine {
       staticProperties: {
         hasInteractiveElements: context.additionalContext?.hasInteractiveElements || false,
         componentFamily: context.additionalContext?.componentFamily || 'generic'
-      }
+      },
+      // Include lint settings so cache invalidates when settings change
+      lintSettingsFingerprint: lintSettings ? this.createHash(JSON.stringify(lintSettings)) : ''
     };
 
     return this.createHash(JSON.stringify(hashInput));

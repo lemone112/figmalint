@@ -5,14 +5,18 @@ import { buildReviewPrompt } from '../prompts/review.js';
 
 let client: Anthropic | null = null;
 
-function getClient(): Anthropic {
+/** Shared Anthropic client singleton — use this across all services. */
+export function getAnthropicClient(): Anthropic {
   if (!client) {
     client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
   return client;
 }
 
-const MODEL = 'claude-sonnet-4-20250514';
+export const MODEL = 'claude-sonnet-4-20250514';
+
+// Internal alias for backward compat within this file
+const getClient = getAnthropicClient;
 
 /**
  * Detect the page type from a screenshot.

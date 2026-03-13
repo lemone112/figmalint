@@ -220,7 +220,11 @@ export type UIMessageType =
   | 'batch-fix-v2'
   | 'rescan-lint'
   | 'export-screenshot'
-  | 'analyze-flow';
+  | 'analyze-flow'
+  | 'save-baseline'
+  | 'load-baseline'
+  | 'compare-baseline'
+  | 'delete-baseline';
 
 // Auto-fix Types
 export interface FixRequest {

@@ -21,6 +21,8 @@ const TYPE_SEVERITY_MAP: Record<string, { label: string; color: string; bg: stri
   spacing: SEVERITY_STYLES.warning,
   autoLayout: SEVERITY_STYLES.warning,
   accessibility: SEVERITY_STYLES.critical,
+  visualQuality: SEVERITY_STYLES.warning,
+  microcopy: SEVERITY_STYLES.info,
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -32,6 +34,8 @@ const TYPE_LABELS: Record<string, string> = {
   spacing: 'Spacing',
   autoLayout: 'Auto Layout',
   accessibility: 'A11y',
+  visualQuality: 'Visual Quality',
+  microcopy: 'Microcopy',
 };
 
 export default function IssuesList({ errors, onJumpToNode }: IssuesListProps) {

@@ -22,3 +22,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 
   duration_seconds INTEGER
 );
+
+-- Performance indexes for common queries
+CREATE INDEX IF NOT EXISTS idx_sessions_node_id ON sessions(node_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at);

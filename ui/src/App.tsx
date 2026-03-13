@@ -3,7 +3,7 @@ import ChatContainer from './components/chat/ChatContainer';
 import SettingsPanel from './components/shared/SettingsPanel';
 import { useChat } from './hooks/useChat';
 import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
-import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData } from './lib/messages';
+import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData } from './lib/messages';
 import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow } from './lib/api';
 
 export default function App() {
@@ -14,6 +14,10 @@ export default function App() {
   const [backendAvailable, setBackendAvailable] = useState(false);
   const [analysisMode, setAnalysisMode] = useState<'quick' | 'deep'>('quick');
   const [showSettings, setShowSettings] = useState(false);
+  const [selectionStale, setSelectionStale] = useState(false);
+  const [currentNodeName, setCurrentNodeName] = useState<string | null>(null);
+  const analyzedNodeId = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const walkthroughIndex = useRef(0);
   const referoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingLintResult = useRef<LintResult | null>(null);
@@ -26,10 +30,7 @@ export default function App() {
   ) => {
     if (!backendAvailable) return;
 
-    chat.addMessage({
-      kind: 'ai-text',
-      content: 'Running AI visual analysis...',
-    });
+    chat.addMessage({ kind: 'analysis-phase', phase: 'ai-review' });
 
     try {
       const result = await analyzeComponent({
@@ -39,12 +40,13 @@ export default function App() {
           componentName: componentName || screenshot.nodeName || 'Component',
           metadata: {
             nodeId: screenshot.nodeId,
-            nodeType: 'FRAME',
+            nodeType: (screenshot as any).nodeType ?? 'FRAME',
             width: screenshot.width,
             height: screenshot.height,
-            hasAutoLayout: false,
-            childCount: 0,
+            hasAutoLayout: (screenshot as any).hasAutoLayout ?? false,
+            childCount: (screenshot as any).childCount ?? 0,
           },
+          tokenSummary: (screenshot as any).tokenSummary,
         },
         sessionId: chat.sessionId || undefined,
         mode: analysisMode,
@@ -61,6 +63,8 @@ export default function App() {
         startReferoPolling(result.sessionId);
       }
     } catch (error) {
+      // Clean up analysis-phase indicator on failure
+      chat.clearAnalysisPhase();
       chat.addMessage({
         kind: 'ai-text',
         content: `AI analysis unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -72,6 +76,8 @@ export default function App() {
   const startReferoPolling = useCallback((sessionId: string) => {
     // Clear any existing poll
     if (referoPollingRef.current) clearInterval(referoPollingRef.current);
+
+    chat.addMessage({ kind: 'analysis-phase', phase: 'refero' });
 
     let attempts = 0;
     referoPollingRef.current = setInterval(async () => {
@@ -112,6 +118,7 @@ export default function App() {
               // Store lint result and request screenshot for AI analysis
               pendingLintResult.current = event.data as LintResult;
               post('export-screenshot');
+              chat.addMessage({ kind: 'analysis-phase', phase: 'screenshot' });
             }
             break;
           case 'enhanced-analysis-result': {
@@ -141,13 +148,17 @@ export default function App() {
             break;
           case 'batch-fix-v2-result':
             chat.handleBatchFixResult(event.data as any);
+            // Plugin-side handleBatchFixV2 already triggers a rescan — no need for duplicate
             break;
           case 'rescan-complete':
             // Rescan lint result will arrive via 'design-lint-result' — handled there
             break;
           case 'screenshot-result': {
-            const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number };
+            const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number };
             pendingScreenshot.current = ssData;
+            analyzedNodeId.current = ssData.nodeId;
+            // Check for existing baseline for this node
+            post('load-baseline', { nodeId: ssData.nodeId });
             // If we have both lint result and screenshot, trigger backend analysis
             if (pendingLintResult.current && pendingScreenshot.current) {
               tryBackendAnalysis(pendingLintResult.current, pendingScreenshot.current);
@@ -217,11 +228,45 @@ export default function App() {
               chat.addMessage({ kind: 'ai-text', content: 'API key saved successfully.' });
             }
             break;
+          case 'baseline-saved':
+            chat.handleBaselineSaved(event.data as { nodeId: string; nodeName: string; timestamp: number; overall: number });
+            break;
+          case 'baseline-loaded':
+            chat.handleBaselineLoaded(event.data as { timestamp: number; nodeName: string; overall: number } | null);
+            break;
+          case 'diff-result': {
+            const diffData = event.data as DiffResultData | null;
+            if (diffData) {
+              chat.handleDiffResult(diffData);
+            } else {
+              chat.addMessage({ kind: 'ai-text', content: 'No baseline found for this component. Save a baseline first.' });
+            }
+            break;
+          }
+          case 'selection-changed': {
+            const selData = event.data as { hasSelection: boolean; nodeId: string | null; nodeName: string | null };
+            setCurrentNodeName(selData.nodeName);
+            // Mark results as stale if selection differs from analyzed node; clear if it matches again
+            if (chat.lintResult && analyzedNodeId.current) {
+              setSelectionStale(selData.nodeId !== analyzedNodeId.current);
+            }
+            break;
+          }
         }
       },
       [chat, post, tryBackendAnalysis]
     )
   );
+
+  // Clean up Refero polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (referoPollingRef.current) {
+        clearInterval(referoPollingRef.current);
+        referoPollingRef.current = null;
+      }
+    };
+  }, []);
 
   // Check API key and backend health on mount
   useEffect(() => {
@@ -230,8 +275,19 @@ export default function App() {
   }, [post]);
 
   const handleAnalyze = useCallback(() => {
+    // Abort any in-flight streaming chat
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+
+    // Stop any active Refero polling from a previous analysis
+    if (referoPollingRef.current) {
+      clearInterval(referoPollingRef.current);
+      referoPollingRef.current = null;
+    }
     chat.startAnalysis();
+    chat.addMessage({ kind: 'analysis-phase', phase: 'lint' });
     walkthroughIndex.current = 0;
+    setSelectionStale(false);
     post('run-design-lint');
   }, [chat, post]);
 
@@ -241,19 +297,29 @@ export default function App() {
 
       // If we have a backend session, use streaming chat
       if (chat.sessionId && backendAvailable) {
+        // Abort any previous in-flight stream
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         streamChat(
           chat.sessionId,
           text,
           (chunk) => chat.appendStreamChunk(chunk),
-          () => chat.finishStream(),
+          () => {
+            abortControllerRef.current = null;
+            chat.finishStream();
+          },
           (error) => {
+            abortControllerRef.current = null;
             chat.finishStream();
             chat.addMessage({ kind: 'ai-text', content: `Error: ${error}` });
-          }
+          },
+          controller.signal
         );
       } else {
         // Fallback to plugin main thread chat
-        post('chat-message', { message: text });
+        post('chat-message', { message: text, history: chat.messages });
       }
     },
     [chat, post, backendAvailable]
@@ -263,27 +329,34 @@ export default function App() {
     (action: string, params?: Record<string, unknown>) => {
       switch (action) {
         case 'fix-all': {
-          // Collect all spacing errors and send as batch fix
-          const spacingErrors = chat.lintResult?.errors.filter(
-            (e: LintError) => e.errorType === 'spacing'
-          );
-          if (spacingErrors && spacingErrors.length > 0) {
+          const errors = chat.lintResult?.errors || [];
+          const fixes: Array<{ type: string; params: Record<string, unknown> }> = [];
+
+          // Spacing fixes
+          for (const err of errors) {
+            if (err.errorType === 'spacing' && err.property) {
+              fixes.push({
+                type: 'fixSpacingToNearest',
+                params: { nodeId: err.nodeId, property: err.property },
+              });
+            }
+          }
+
+          // Radius fixes
+          for (const err of errors) {
+            if (err.errorType === 'radius') {
+              fixes.push({
+                type: 'fixRadiusToNearest',
+                params: { nodeId: err.nodeId },
+              });
+            }
+          }
+
+          if (fixes.length > 0) {
             chat.addMessage({
               kind: 'ai-text',
-              content: `Fixing ${spacingErrors.length} spacing issue${spacingErrors.length !== 1 ? 's' : ''}...`,
+              content: `Fixing ${fixes.length} auto-fixable issue${fixes.length !== 1 ? 's' : ''} (spacing + radius)...`,
             });
-
-            // Build batch fix actions
-            const fixes = spacingErrors
-              .filter(err => err.property)
-              .map(err => ({
-                type: 'fixSpacingToNearest' as const,
-                params: {
-                  nodeId: err.nodeId,
-                  property: err.property!,
-                },
-              }));
-
             post('batch-fix-v2', { fixes });
           }
           break;
@@ -321,6 +394,14 @@ export default function App() {
               action: 'fix-single-spacing',
               params: { nodeId: issue.nodeId, property: issue.property },
             });
+          } else if (issue.errorType === 'radius') {
+            buttons.push({
+              id: `fix-radius-${issue.nodeId}`,
+              label: 'Fix radius to nearest',
+              variant: 'primary' as const,
+              action: 'fix-single-radius',
+              params: { nodeId: issue.nodeId },
+            });
           }
           buttons.push({
             id: `skip-${idx}`,
@@ -344,6 +425,15 @@ export default function App() {
           break;
         }
 
+        case 'fix-single-radius': {
+          if (params?.nodeId) {
+            post('batch-fix-v2', {
+              fixes: [{ type: 'fixRadiusToNearest', params: { nodeId: params.nodeId } }],
+            });
+          }
+          break;
+        }
+
         case 'rescan': {
           chat.addMessage({ kind: 'ai-text', content: 'Re-scanning...' });
           post('rescan-lint');
@@ -353,7 +443,7 @@ export default function App() {
         case 'export': {
           const result = chat.lintResult;
           if (result) {
-            const md = buildFullReport(result, componentName, chat.issuesFixed, chat.aiReview);
+            const md = buildFullReport(result, componentName, chat.issuesFixed, chat.aiReview, chat.lastDiff);
             navigator.clipboard.writeText(md).then(
               () => {
                 chat.addMessage({
@@ -384,12 +474,80 @@ export default function App() {
                 issuesFixed: chat.issuesFixed,
               },
               aiReview: chat.aiReview || undefined,
+              diff: chat.lastDiff || undefined,
             };
             navigator.clipboard.writeText(JSON.stringify(report, null, 2)).then(
               () => chat.addMessage({ kind: 'ai-text', content: 'JSON report copied to clipboard!' }),
               () => chat.addMessage({ kind: 'ai-text', content: 'Failed to copy JSON to clipboard.' }),
             );
           }
+          break;
+        }
+
+        case 'save-baseline': {
+          if (!chat.score || !chat.lintResult) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first before saving a baseline.' });
+            break;
+          }
+          const nodeId = analyzedNodeId.current;
+          if (!nodeId) break;
+          post('save-baseline', {
+            nodeId,
+            nodeName: componentName || 'Component',
+            overall: chat.score.overall,
+            grade: chat.score.grade,
+            categories: {
+              tokens: chat.score.tokens,
+              spacing: chat.score.spacing,
+              layout: chat.score.layout,
+              accessibility: chat.score.accessibility,
+              naming: chat.score.naming,
+              visualQuality: chat.score.visualQuality,
+              microcopy: chat.score.microcopy,
+              conversion: chat.score.conversion,
+              cognitive: chat.score.cognitive,
+            },
+            errors: chat.lintResult.errors.map(e => ({
+              errorType: e.errorType,
+              severity: e.severity,
+              nodeId: e.nodeId,
+              message: e.message,
+            })),
+            summary: chat.lintResult.summary,
+          });
+          break;
+        }
+
+        case 'compare-baseline': {
+          if (!chat.score || !chat.lintResult) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first before comparing.' });
+            break;
+          }
+          const diffNodeId = analyzedNodeId.current;
+          if (!diffNodeId) break;
+          post('compare-baseline', {
+            nodeId: diffNodeId,
+            overall: chat.score.overall,
+            grade: chat.score.grade,
+            categories: {
+              tokens: chat.score.tokens,
+              spacing: chat.score.spacing,
+              layout: chat.score.layout,
+              accessibility: chat.score.accessibility,
+              naming: chat.score.naming,
+              visualQuality: chat.score.visualQuality,
+              microcopy: chat.score.microcopy,
+              conversion: chat.score.conversion,
+              cognitive: chat.score.cognitive,
+            },
+            errors: chat.lintResult.errors.map(e => ({
+              errorType: e.errorType,
+              severity: e.severity,
+              nodeId: e.nodeId,
+              message: e.message,
+            })),
+            summary: chat.lintResult.summary,
+          });
           break;
         }
 
@@ -458,10 +616,25 @@ export default function App() {
             className="shrink-0 w-8 h-8 flex items-center justify-center text-fg-tertiary hover:text-fg rounded-md hover:bg-bg-hover transition-colors"
             title="Settings"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Stale selection banner */}
+      {selectionStale && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-bg-warning text-fg-warning text-11 border-b border-border">
+          <span className="flex-1">
+            Selection changed{currentNodeName ? ` to "${currentNodeName}"` : ''}. Results may be stale.
+          </span>
+          <button
+            className="shrink-0 px-2 py-0.5 bg-bg-brand text-fg-onbrand text-11 font-medium rounded hover:opacity-90"
+            onClick={handleAnalyze}
+          >
+            Re-analyze
           </button>
         </div>
       )}
@@ -486,6 +659,7 @@ function buildFullReport(
   componentName?: string,
   issuesFixed?: number,
   aiReview?: AiReviewData | null,
+  diff?: DiffResultData | null,
 ): string {
   const lines = [
     `# Design Review Report: ${componentName || 'Component'}`,
@@ -505,6 +679,8 @@ function buildFullReport(
   if (byType.radius > 0) lines.push(`- **Border radius:** ${byType.radius} non-standard`);
   if (byType.spacing > 0) lines.push(`- **Spacing:** ${byType.spacing} off-grid`);
   if (byType.autoLayout > 0) lines.push(`- **Auto Layout:** ${byType.autoLayout} missing`);
+  if (byType.visualQuality > 0) lines.push(`- **Visual Quality:** ${byType.visualQuality} issues`);
+  if (byType.microcopy > 0) lines.push(`- **Microcopy:** ${byType.microcopy} issues`);
 
   // AI Review section (rubric-based)
   if (aiReview) {
@@ -515,6 +691,9 @@ function buildFullReport(
     lines.push(`| States Coverage | ${aiReview.statesCoverage.rating.toUpperCase()} |`);
     lines.push(`| Platform Alignment | ${aiReview.platformAlignment.rating.toUpperCase()} (${aiReview.platformAlignment.detectedPlatform}) |`);
     lines.push(`| Color Harmony | ${aiReview.colorHarmony.rating.toUpperCase()} |`);
+    if (aiReview.visualBalance) lines.push(`| Visual Balance | ${aiReview.visualBalance.rating.toUpperCase()} |`);
+    if (aiReview.microcopyQuality) lines.push(`| Microcopy Quality | ${aiReview.microcopyQuality.rating.toUpperCase()} |`);
+    if (aiReview.cognitiveLoad) lines.push(`| Cognitive Load | ${aiReview.cognitiveLoad.rating.toUpperCase()} |`);
 
     const missingStates = aiReview.statesCoverage?.missingStates || [];
     if (missingStates.length > 0) {
@@ -530,6 +709,31 @@ function buildFullReport(
 
     if (aiReview.summary) {
       lines.push('', `> ${aiReview.summary}`);
+    }
+  }
+
+  // Baseline diff section
+  if (diff) {
+    lines.push('', '## Baseline Comparison', '');
+    const delta = diff.scoreDelta.overall;
+    const arrow = delta > 0 ? '+' : '';
+    lines.push(`Score: ${diff.scoreDelta.oldOverall} → ${diff.scoreDelta.newOverall} (${arrow}${delta})`);
+    lines.push(`Baseline from: ${new Date(diff.baselineTimestamp).toLocaleString()}`);
+    lines.push('');
+
+    if (diff.summary.totalFixed > 0) lines.push(`- **Fixed:** ${diff.summary.totalFixed} issues`);
+    if (diff.summary.totalNew > 0) lines.push(`- **New:** ${diff.summary.totalNew} issues`);
+    lines.push(`- **Remaining:** ${diff.summary.totalRemaining} issues`);
+
+    // Category deltas
+    const changed = diff.scoreDelta.categories.filter(c => c.delta !== 0);
+    if (changed.length > 0) {
+      lines.push('', '| Category | Before | After | Delta |');
+      lines.push('|----------|--------|-------|-------|');
+      for (const c of changed) {
+        const d = c.delta > 0 ? `+${c.delta}` : `${c.delta}`;
+        lines.push(`| ${c.category} | ${c.oldScore} | ${c.newScore} | ${d} |`);
+      }
     }
   }
 

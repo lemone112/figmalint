@@ -2,10 +2,11 @@ interface QuickActionsProps {
   onAnalyze: () => void;
   hasFixable: boolean;
   analysisMode?: 'quick' | 'deep';
+  hasBaseline?: boolean;
   onAction: (action: string, params?: Record<string, unknown>) => void;
 }
 
-export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'quick', onAction }: QuickActionsProps) {
+export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'quick', hasBaseline, onAction }: QuickActionsProps) {
   return (
     <div className="flex items-center gap-1.5 px-3 py-1 border-t border-border overflow-x-auto">
       {hasFixable && (
@@ -22,6 +23,22 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
       >
         Re-scan
       </button>
+      <button
+        className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
+        onClick={() => onAction('save-baseline')}
+        title="Save current results as baseline for future comparison"
+      >
+        {hasBaseline ? 'Update Baseline' : 'Save Baseline'}
+      </button>
+      {hasBaseline && (
+        <button
+          className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
+          onClick={() => onAction('compare-baseline')}
+          title="Compare current results with saved baseline"
+        >
+          Diff
+        </button>
+      )}
       <button
         className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
         onClick={() => onAction('export')}
