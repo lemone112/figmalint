@@ -1,4 +1,11 @@
 import type { MiddlewareHandler } from 'hono';
+import { timingSafeEqual as cryptoTimingSafeEqual } from 'node:crypto';
+
+/** Constant-time string comparison to prevent timing attacks */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return cryptoTimingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 /**
  * Bearer token auth middleware.
@@ -25,7 +32,7 @@ export function bearerAuth(): MiddlewareHandler {
     }
 
     const provided = header.slice(7);
-    if (provided !== token) {
+    if (!timingSafeEqual(provided, token)) {
       return c.json({ error: 'Invalid token' }, 403);
     }
 

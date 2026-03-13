@@ -188,7 +188,7 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
           saveReferoResult(sessionId, result);
         }
       })
-      .catch(() => { /* Refero failure is non-critical */ });
+      .catch((err) => { console.warn('[refero] Background comparison failed:', err instanceof Error ? err.message : err); });
   }
 
   // Compute Design Health Score — severity-weighted, no AI component

@@ -3,6 +3,8 @@
  * Five distinct user personas evaluate a design screenshot.
  */
 
+import { sanitizeText } from '../utils/sanitize.js';
+
 export interface PersonaPrompt {
   name: string;
   role: string;
@@ -47,12 +49,12 @@ export function buildPersonaUserPrompt(
   lintContext?: string,
 ): string {
   const lintBlock = lintContext
-    ? `\n## Automated Lint Context\n${lintContext}\n`
+    ? `\n## Automated Lint Context\n${sanitizeText(lintContext)}\n`
     : '';
 
   return `Look at this screenshot of a user interface. You are being asked to complete the following task:
 
-"${taskDescription}"
+"${sanitizeText(taskDescription)}"
 ${lintBlock}
 Based on your perspective and abilities, evaluate this design. Consider:
 1. Can you understand what this screen is for?

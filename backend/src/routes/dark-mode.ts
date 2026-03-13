@@ -84,6 +84,19 @@ app.post('/validate-dark-mode', async (c) => {
     if (!body.modeData || typeof body.modeData !== 'object') {
       return c.json({ error: 'modeData is required' }, 400);
     }
+    const md = body.modeData;
+    if (!md.collection || typeof md.collection !== 'string') {
+      return c.json({ error: 'modeData.collection is required and must be a string' }, 400);
+    }
+    if (!Array.isArray(md.modes) || md.modes.length === 0) {
+      return c.json({ error: 'modeData.modes must be a non-empty array' }, 400);
+    }
+    if (!Array.isArray(md.variableDiffs)) {
+      return c.json({ error: 'modeData.variableDiffs must be an array' }, 400);
+    }
+    if (!Array.isArray(md.missingValues)) {
+      return c.json({ error: 'modeData.missingValues must be an array' }, 400);
+    }
 
     // Build deterministic summary for prompt context
     const deterministicSummary = body.deterministicIssues

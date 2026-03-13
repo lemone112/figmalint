@@ -5,14 +5,8 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
-/**
- * Simple in-memory sliding window rate limiter per IP.
- * Configurable via RATE_LIMIT_MAX and RATE_LIMIT_WINDOW_MS env vars.
- */
-export function rateLimit(): MiddlewareHandler {
+function createRateLimiter(maxRequests: number, windowMs: number): MiddlewareHandler {
   const store = new Map<string, RateLimitEntry>();
-  const max = parseInt(process.env.RATE_LIMIT_MAX || '60', 10);
-  const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10);
 
   // Periodic cleanup to prevent unbounded memory growth
   setInterval(() => {
@@ -40,14 +34,34 @@ export function rateLimit(): MiddlewareHandler {
 
     entry.count++;
 
-    c.header('X-RateLimit-Limit', String(max));
-    c.header('X-RateLimit-Remaining', String(Math.max(0, max - entry.count)));
+    c.header('X-RateLimit-Limit', String(maxRequests));
+    c.header('X-RateLimit-Remaining', String(Math.max(0, maxRequests - entry.count)));
     c.header('X-RateLimit-Reset', String(Math.ceil(entry.resetAt / 1000)));
 
-    if (entry.count > max) {
+    if (entry.count > maxRequests) {
       return c.json({ error: 'Too many requests' }, 429);
     }
 
     return next();
   };
+}
+
+/**
+ * General rate limiter for all API routes.
+ * Configurable via RATE_LIMIT_MAX and RATE_LIMIT_WINDOW_MS env vars.
+ */
+export function rateLimit(): MiddlewareHandler {
+  const max = parseInt(process.env.RATE_LIMIT_MAX || '60', 10);
+  const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10);
+  return createRateLimiter(max, windowMs);
+}
+
+/**
+ * Stricter rate limiter for AI-heavy routes (Claude API calls).
+ * Configurable via AI_RATE_LIMIT_MAX and AI_RATE_LIMIT_WINDOW_MS env vars.
+ */
+export function aiRateLimit(): MiddlewareHandler {
+  const max = parseInt(process.env.AI_RATE_LIMIT_MAX || '15', 10);
+  const windowMs = parseInt(process.env.AI_RATE_LIMIT_WINDOW_MS || '60000', 10);
+  return createRateLimiter(max, windowMs);
 }

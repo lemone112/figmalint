@@ -2,6 +2,7 @@
  * Build the AI prompt for a cognitive walkthrough analysis.
  * Sent alongside screenshots of all frames in the flow.
  */
+import { sanitizeText } from '../utils/sanitize.js';
 export function buildCognitiveWalkthroughPrompt(
   taskDescription: string,
   frameLabels: string[],
@@ -11,17 +12,17 @@ export function buildCognitiveWalkthroughPrompt(
   return `You are conducting a formal Cognitive Walkthrough (CW) of a user interface flow.
 
 ## Task
-The user is trying to: "${taskDescription}"
+The user is trying to: "${sanitizeText(taskDescription)}"
 
 ## Flow Structure
 The flow consists of ${frameLabels.length} screens, presented in order:
-${frameLabels.map((label, i) => `  ${i + 1}. ${label}`).join('\n')}
+${frameLabels.map((label, i) => `  ${i + 1}. ${sanitizeText(label)}`).join('\n')}
 
 ## Transitions (edges)
-${edgeDescriptions.length > 0 ? edgeDescriptions.join('\n') : 'No explicit transitions provided.'}
+${edgeDescriptions.length > 0 ? edgeDescriptions.map(d => sanitizeText(d)).join('\n') : 'No explicit transitions provided.'}
 
 ## Interactive Elements Per Screen
-${interactiveElementDescriptions.length > 0 ? interactiveElementDescriptions.join('\n\n') : 'No interactive element data provided.'}
+${interactiveElementDescriptions.length > 0 ? interactiveElementDescriptions.map(d => sanitizeText(d)).join('\n\n') : 'No interactive element data provided.'}
 
 ## Your Task
 For EACH step (transition from one frame to the next), answer the 4 standard Cognitive Walkthrough questions. Base your answers on what is visually evident in the screenshots and the interactive element data provided.

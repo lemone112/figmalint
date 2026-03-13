@@ -15,6 +15,34 @@ export function getBackendUrl(): string {
   return backendUrl;
 }
 
+const API_TIMEOUT_MS = 90_000; // 90s timeout for AI-heavy calls
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = API_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const existingSignal = options.signal;
+
+  if (existingSignal) {
+    // If already aborted, abort immediately
+    if (existingSignal.aborted) {
+      controller.abort(existingSignal.reason);
+    } else {
+      existingSignal.addEventListener('abort', () => controller.abort(existingSignal.reason), { once: true });
+    }
+  }
+
+  const timeout = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeoutMs);
+
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeout));
+}
+
+const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024; // 10MB max screenshot
+
+function validateScreenshot(screenshot: string): void {
+  if (screenshot.length > MAX_SCREENSHOT_BYTES) {
+    throw new Error('Screenshot too large (max 10MB). Try selecting a smaller frame.');
+  }
+}
+
 /**
  * POST /api/analyze — full AI analysis with screenshot + lint.
  */
@@ -64,7 +92,8 @@ export async function analyzeComponent(data: {
     screenshots: Array<{ id: string; title: string; company: string; pageType: string; thumbnailUrl: string; fullUrl: string; platform: 'web' | 'ios' | 'android'; tags?: string[] }>;
   };
 }> {
-  const resp = await fetch(`${backendUrl}/api/analyze`, {
+  validateScreenshot(data.screenshot);
+  const resp = await fetchWithTimeout(`${backendUrl}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -82,11 +111,11 @@ export async function analyzeComponent(data: {
  * POST /api/chat — non-streaming chat.
  */
 export async function chatMessage(sessionId: string, message: string): Promise<{ message: string }> {
-  const resp = await fetch(`${backendUrl}/api/chat`, {
+  const resp = await fetchWithTimeout(`${backendUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId, message }),
-  });
+  }, 30_000);
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
@@ -242,11 +271,11 @@ export async function analyzePageSweep(data: {
     summary: string;
   };
 }> {
-  const resp = await fetch(`${backendUrl}/api/analyze-page`, {
+  const resp = await fetchWithTimeout(`${backendUrl}/api/analyze-page`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
-  });
+  }, 120_000);
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
@@ -284,11 +313,11 @@ export async function analyzeFlow(data: {
     summary: string;
   } | null;
 }> {
-  const resp = await fetch(`${backendUrl}/api/analyze-flow`, {
+  const resp = await fetchWithTimeout(`${backendUrl}/api/analyze-flow`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
-  });
+  }, 120_000);
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
@@ -335,7 +364,8 @@ export async function analyzeBrandConsistency(data: {
     summary: string;
   };
 }> {
-  const resp = await fetch(`${backendUrl}/api/brand-consistency`, {
+  validateScreenshot(data.screenshot);
+  const resp = await fetchWithTimeout(`${backendUrl}/api/brand-consistency`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -360,7 +390,7 @@ export async function analyzeCopyTone(data: {
   success: boolean;
   copyTone: unknown;
 }> {
-  const resp = await fetch(`${backendUrl}/api/copy-tone`, {
+  const resp = await fetchWithTimeout(`${backendUrl}/api/copy-tone`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -386,7 +416,8 @@ export async function analyzePersonaResearch(data: {
   success: boolean;
   personaResearch: unknown;
 }> {
-  const resp = await fetch(`${backendUrl}/api/persona-research`, {
+  validateScreenshot(data.screenshot);
+  const resp = await fetchWithTimeout(`${backendUrl}/api/persona-research`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -466,7 +497,8 @@ export async function generateA11ySpec(data: {
     }>;
   };
 }> {
-  const resp = await fetch(`${backendUrl}/api/generate-a11y-spec`, {
+  validateScreenshot(data.screenshot);
+  const resp = await fetchWithTimeout(`${backendUrl}/api/generate-a11y-spec`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),

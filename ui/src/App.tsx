@@ -33,7 +33,7 @@ export default function App() {
   // Try to send lint + screenshot to backend for AI analysis
   const tryBackendAnalysis = useCallback(async (
     lintResult: LintResult,
-    screenshot: { screenshot: string; nodeId: string; nodeName: string; width: number; height: number }
+    screenshot: { screenshot: string; nodeId: string; nodeName: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number; tokenSummary?: { totalTokens: number; boundToVariables: number; boundToStyles: number; hardCoded: number } }
   ) => {
     if (!backendAvailable) return;
 
@@ -47,13 +47,13 @@ export default function App() {
           componentName: componentName || screenshot.nodeName || 'Component',
           metadata: {
             nodeId: screenshot.nodeId,
-            nodeType: (screenshot as any).nodeType ?? 'FRAME',
+            nodeType: 'FRAME',
             width: screenshot.width,
             height: screenshot.height,
-            hasAutoLayout: (screenshot as any).hasAutoLayout ?? false,
-            childCount: (screenshot as any).childCount ?? 0,
+            hasAutoLayout: screenshot.hasAutoLayout ?? false,
+            childCount: screenshot.childCount ?? 0,
           },
-          tokenSummary: (screenshot as any).tokenSummary,
+          tokenSummary: screenshot.tokenSummary,
         },
         sessionId: chat.sessionId || undefined,
         mode: analysisMode,
@@ -849,7 +849,7 @@ export default function App() {
           setIsActionLoading(true);
           analyzePersonaResearch({
             screenshot: lastScreenshot.current.screenshot,
-            taskDescription: 'General usability review',
+            taskDescription: componentName ? `Complete a task using the "${componentName}" component` : 'General usability review',
             sessionId: chat.sessionId || undefined,
           }).then((result) => {
             chat.addMessage({ kind: 'persona-research', data: result.personaResearch });
