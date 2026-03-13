@@ -99,9 +99,9 @@ function buildGraphDescription(frames: FlowFrame[], edges: FlowEdge[]): string {
  * Sends all screenshots + graph context to Claude for holistic analysis.
  */
 export async function analyzeFlow(req: FlowAnalyzeRequest): Promise<FlowAnalysisResult | null> {
-  const client = getAnthropicClient();
-
   if (!process.env.ANTHROPIC_API_KEY) return null;
+
+  const client = getAnthropicClient();
 
   const frameNames = req.frames.map(f => f.name);
   const graphDescription = buildGraphDescription(req.frames, req.edges);

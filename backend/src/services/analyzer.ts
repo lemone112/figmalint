@@ -166,7 +166,7 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
   }
 
   // Compute Design Health Score — severity-weighted, no AI component
-  // Weights: Tokens 25%, A11y 25%, Spacing 15%, Visual 10%, Microcopy 10%, Layout 10%, Naming 5%
+  // Weights aligned with UI: Tokens 25%, A11y 25%, Spacing 18%, Layout 10%, Naming 7%, Visual 8%, Microcopy 7%
   const SEVERITY_WEIGHT: Record<string, number> = { critical: 10, warning: 3, info: 1 };
   const errors = req.lintResult.errors;
   const total = Math.max(req.lintResult.summary.totalNodes, 1);
@@ -194,12 +194,12 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
 
   const designHealthScore = Math.round(
     severityScore(tokenErrors, total * 4) * 0.25 +
-    severityScore(a11yErrors, total) * 0.25 +
-    severityScore(spacingErrors, total) * 0.15 +
-    severityScore(visualQualityErrors, total) * 0.10 +
-    severityScore(microcopyErrors, total) * 0.10 +
+    severityScore(spacingErrors, total) * 0.18 +
     severityScore(layoutErrors, total) * 0.10 +
-    severityScore(namingErrors, total) * 0.05
+    severityScore(a11yErrors, total) * 0.25 +
+    severityScore(namingErrors, total) * 0.07 +
+    severityScore(visualQualityErrors, total) * 0.08 +
+    severityScore(microcopyErrors, total) * 0.07
   );
 
   // Save to session

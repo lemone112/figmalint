@@ -62,6 +62,8 @@ export default function App() {
         startReferoPolling(result.sessionId);
       }
     } catch (error) {
+      // Clean up analysis-phase indicator on failure
+      chat.clearAnalysisPhase();
       chat.addMessage({
         kind: 'ai-text',
         content: `AI analysis unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -142,11 +144,7 @@ export default function App() {
             break;
           case 'batch-fix-v2-result':
             chat.handleBatchFixResult(event.data as any);
-            // Auto-rescan after batch fixes to show updated score
-            setTimeout(() => {
-              chat.addMessage({ kind: 'ai-text', content: 'Re-scanning to verify fixes...' });
-              post('rescan-lint');
-            }, 500);
+            // Plugin-side handleBatchFixV2 already triggers a rescan — no need for duplicate
             break;
           case 'rescan-complete':
             // Rescan lint result will arrive via 'design-lint-result' — handled there
@@ -179,9 +177,9 @@ export default function App() {
           case 'selection-changed': {
             const selData = event.data as { hasSelection: boolean; nodeId: string | null; nodeName: string | null };
             setCurrentNodeName(selData.nodeName);
-            // Mark results as stale if we have results and selection changed to a different node
-            if (chat.lintResult && analyzedNodeId.current && selData.nodeId !== analyzedNodeId.current) {
-              setSelectionStale(true);
+            // Mark results as stale if selection differs from analyzed node; clear if it matches again
+            if (chat.lintResult && analyzedNodeId.current) {
+              setSelectionStale(selData.nodeId !== analyzedNodeId.current);
             }
             break;
           }
@@ -208,6 +206,11 @@ export default function App() {
   }, [post]);
 
   const handleAnalyze = useCallback(() => {
+    // Stop any active Refero polling from a previous analysis
+    if (referoPollingRef.current) {
+      clearInterval(referoPollingRef.current);
+      referoPollingRef.current = null;
+    }
     chat.startAnalysis();
     walkthroughIndex.current = 0;
     setSelectionStale(false);

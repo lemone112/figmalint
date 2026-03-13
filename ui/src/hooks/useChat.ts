@@ -398,6 +398,14 @@ export function useChat() {
     });
   }, []);
 
+  const clearAnalysisPhase = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      isAnalyzing: false,
+      messages: prev.messages.filter(m => m.message.kind !== 'analysis-phase'),
+    }));
+  }, []);
+
   return {
     ...state,
     addMessage,
@@ -411,6 +419,7 @@ export function useChat() {
     appendStreamChunk,
     finishStream,
     clearMessages,
+    clearAnalysisPhase,
   };
 }
 

@@ -157,7 +157,7 @@ function AnalysisPhaseIndicator({ phase, done }: { phase: AnalysisPhase; done?: 
         return (
           <div key={p} className="flex items-center gap-2 text-11">
             {isComplete && (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-fg-success shrink-0">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-fg-success shrink-0" aria-hidden="true">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             )}
