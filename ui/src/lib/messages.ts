@@ -118,7 +118,15 @@ export type ChatMessageType =
   | { kind: 'flow-result'; data: FlowAnalysisData }
   | { kind: 'diff-result'; data: DiffResultData }
   | { kind: 'baseline-saved'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } }
-  | { kind: 'page-sweep-result'; data: PageSweepData };
+  | { kind: 'page-sweep-result'; data: PageSweepData }
+  | { kind: 'design-debt'; data: unknown }
+  | { kind: 'dark-mode'; data: unknown }
+  | { kind: 'a11y-spec'; data: unknown }
+  | { kind: 'token-compliance'; data: unknown }
+  | { kind: 'brand-consistency'; data: unknown }
+  | { kind: 'copy-tone'; data: unknown }
+  | { kind: 'persona-research'; data: unknown }
+  | { kind: 'attention-heatmap'; data: unknown };
 
 export type AiRating = 'pass' | 'needs_improvement' | 'fail';
 
@@ -196,6 +204,15 @@ export interface ChatMessage {
   message: ChatMessageType;
 }
 
+// Ambient quality badge data — sent on every selection change
+export interface MiniScoreData {
+  nodeId: string;
+  nodeName: string;
+  score: number;
+  issueCount: number;
+  topSeverity: 'critical' | 'warning' | 'info' | 'none';
+}
+
 // Plugin → UI message events
 export type PluginEvent =
   | { type: 'design-lint-result'; data: LintResult }
@@ -217,7 +234,8 @@ export type PluginEvent =
   | { type: 'baseline-loaded'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } | null }
   | { type: 'diff-result'; data: DiffResultData }
   | { type: 'page-sweep-progress'; data: { current: number; total: number; frameName: string } }
-  | { type: 'page-sweep-result'; data: PageSweepRawData };
+  | { type: 'page-sweep-result'; data: PageSweepRawData }
+  | { type: 'selection-mini-score'; data: MiniScoreData };
 
 // Flow Analysis Types
 export interface FlowGraphIssue {

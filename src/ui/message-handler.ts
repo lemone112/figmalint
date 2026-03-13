@@ -49,6 +49,7 @@ import { enableRealtimeLint, disableRealtimeLint } from '../lint/realtime-lint';
 import { calculateDesignDebt } from '../baseline/design-debt';
 import {
   lintSelection,
+  runDesignLint,
   ignoreNode,
   ignoreError,
   ignoreAllOfType,
@@ -1688,6 +1689,46 @@ export async function initializePlugin(): Promise<void> {
     console.log('Plugin initialized successfully');
   } catch (error) {
     console.error('Error initializing plugin:', error);
+  }
+}
+
+// ============================================================================
+// Ambient Quality Badge — quick lint on selection change
+// ============================================================================
+
+/**
+ * Run a lightweight lint on a single node and send a mini-score to the UI.
+ * Called from code.ts on selectionchange. Designed to be fast (single node, no AI).
+ */
+export function quickLintSelectedNode(): void {
+  const sel = figma.currentPage.selection;
+  if (sel.length === 0) return;
+
+  try {
+    const node = sel[0];
+    const result = runDesignLint([node], currentLintSettings);
+    const total = result.summary.totalNodes || 1;
+
+    // Quick severity-weighted score (simplified version of UI's computeScoreBreakdown)
+    const WEIGHT: Record<string, number> = { critical: 10, warning: 3, info: 1 };
+    const weightedFailed = result.errors.reduce((sum, e) => sum + (WEIGHT[e.severity || 'warning'] || 3), 0);
+    const weightedPassed = Math.max(0, total - result.errors.length) * 10;
+    const totalW = weightedPassed + weightedFailed;
+    const score = totalW > 0 ? Math.round((weightedPassed / totalW) * 100) : 100;
+
+    const topSeverity: string = result.errors.some(e => e.severity === 'critical') ? 'critical'
+      : result.errors.some(e => e.severity === 'warning') ? 'warning'
+      : result.errors.length > 0 ? 'info' : 'none';
+
+    sendMessageToUI('selection-mini-score', {
+      nodeId: node.id,
+      nodeName: node.name,
+      score,
+      issueCount: result.summary.totalErrors,
+      topSeverity,
+    });
+  } catch {
+    // Don't break the plugin if quick lint fails
   }
 }
 

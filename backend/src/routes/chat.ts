@@ -34,7 +34,7 @@ app.post('/chat', async (c) => {
     const sessionContext = getSessionContext(body.sessionId);
     // System prompt carries only instructions + session context;
     // conversation history is passed separately via the messages array
-    const systemPrompt = buildFollowupPrompt(sessionContext);
+    const systemPrompt = buildFollowupPrompt(sessionContext, session.ai_review ?? undefined);
 
     // Build messages for API — only include recent history to avoid context bloat
     const messages: Array<{ role: 'user' | 'assistant'; content: string }> = history.map(m => ({

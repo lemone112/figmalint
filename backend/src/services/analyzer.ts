@@ -1,8 +1,16 @@
 import { fetchDesignSystemContext, type SourceReference } from './design-knowledge.js';
 import { buildDesignKnowledgeSection } from '../prompts/design-knowledge.js';
-import { detectPageType, generateReview, getAnthropicClient } from './claude.js';
+import { detectPageType, generateReview, getAnthropicClient, MODEL, type PageTypeResult } from './claude.js';
 import { runReferoComparison, type ReferoComparison } from './refero.js';
 import { startSession, loadSession, saveAnalysisResult, saveReferoResult } from './session.js';
+import { buildThreeLayerPrompt, type ThreeLayerExplanation } from '../prompts/three-layer.js';
+import {
+  filterByConfidence,
+  sortByConfidence,
+  withConfidenceScoring,
+  type ConfidencedFinding,
+} from './confidence-filter.js';
+import { SYSTEM_PROMPT } from '../prompts/system.js';
 
 export interface AnalyzeRequest {
   screenshot: string;
@@ -43,6 +51,13 @@ export interface AnalyzeRequest {
   };
   sessionId?: string;
   mode: 'quick' | 'deep';
+  /** Optional extended features to enable on this analysis run. */
+  features?: {
+    /** Generate three-layer explanations (rule / why / real-world) for the top-N lint issues. Default: 0 (disabled). */
+    threeLayerExplanations?: boolean;
+    /** Run confidence scoring on all AI findings and filter low-confidence results. Default: false. */
+    confidenceScoring?: boolean;
+  };
 }
 
 export interface AiReviewCategory {
@@ -66,12 +81,20 @@ export interface AiReviewResult {
 export interface AnalysisResult {
   sessionId: string;
   pageType: string;
+  /** Confidence of the page-type classification (0-1). */
+  pageTypeConfidence?: number;
+  /** Signals that matched during page-type detection. */
+  pageTypeSignals?: string[];
   lintResult: AnalyzeRequest['lintResult'];
   aiReview: AiReviewResult;
   referoComparison?: ReferoComparison;
   designHealthScore: number;
   /** Authoritative sources used to ground the AI review (Thesis #50) */
   designSystemSources?: SourceReference[];
+  /** Three-layer explanations for the top lint issues (when feature enabled). */
+  threeLayerExplanations?: ThreeLayerExplanation[];
+  /** Confidence-scored and filtered AI findings (when feature enabled). */
+  confidencedFindings?: ConfidencedFinding[];
 }
 
 /**
@@ -115,7 +138,10 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
     fetchDesignSystemContext(req.extractedData.componentName, componentFamily),
   ]);
 
-  const pageType = pageTypeResult.status === 'fulfilled' ? pageTypeResult.value : 'unknown';
+  const pageTypeData: PageTypeResult = pageTypeResult.status === 'fulfilled'
+    ? pageTypeResult.value
+    : { type: 'unknown', confidence: 0, signals: [] };
+  const pageType = pageTypeData.type;
   const designKnowledge = designKnowledgeResult.status === 'fulfilled'
     ? designKnowledgeResult.value
     : null;
@@ -206,17 +232,122 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
     severityScore(namingErrors, total) * 0.04
   );
 
+  // Phase 3: Optional extended features (non-blocking, run in parallel)
+  const features = req.features ?? {};
+  let threeLayerExplanations: ThreeLayerExplanation[] | undefined;
+  let confidencedFindings: ConfidencedFinding[] | undefined;
+
+  const extendedPromises: Array<Promise<void>> = [];
+
+  // Three-layer explanations for top-5 lint issues
+  if (features.threeLayerExplanations && req.lintResult.errors.length > 0) {
+    const topErrors = req.lintResult.errors.slice(0, 5);
+    const threeLayerPrompt = buildThreeLayerPrompt(topErrors);
+
+    if (threeLayerPrompt) {
+      extendedPromises.push(
+        (async () => {
+          try {
+            const client = getAnthropicClient();
+            const response = await client.messages.create({
+              model: MODEL,
+              max_tokens: 2000,
+              system: SYSTEM_PROMPT,
+              messages: [{ role: 'user', content: threeLayerPrompt }],
+            });
+            if (response.content.length && response.content[0].type === 'text') {
+              const jsonMatch = response.content[0].text.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (Array.isArray(parsed.explanations)) {
+                  threeLayerExplanations = parsed.explanations;
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Three-layer explanation failed:', err);
+          }
+        })(),
+      );
+    }
+  }
+
+  // Confidence scoring: extract findings from AI review and score them
+  if (features.confidenceScoring && aiReview.recommendations.length > 0) {
+    extendedPromises.push(
+      (async () => {
+        try {
+          const findingsPrompt = withConfidenceScoring(
+            `Score the following design findings with confidence levels.\n\n` +
+              aiReview.recommendations
+                .map(
+                  (r, i) =>
+                    `${i + 1}. [${r.severity}] ${r.title}: ${r.description}`,
+                )
+                .join('\n') +
+              `\n\nFor each finding, respond in JSON:\n{ "findings": [{ "finding": "<title>", "confidence": <0-1>, "evidence": "<specific visual evidence>", "category": "<category>", "severity": "<severity>" }] }`,
+          );
+
+          const client = getAnthropicClient();
+          const response = await client.messages.create({
+            model: MODEL,
+            max_tokens: 1500,
+            system: SYSTEM_PROMPT,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'image',
+                    source: {
+                      type: 'base64',
+                      media_type: 'image/png',
+                      data: req.screenshot,
+                    },
+                  },
+                  { type: 'text', text: findingsPrompt },
+                ],
+              },
+            ],
+          });
+
+          if (response.content.length && response.content[0].type === 'text') {
+            const jsonMatch = response.content[0].text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (Array.isArray(parsed.findings)) {
+                const scored = parsed.findings as ConfidencedFinding[];
+                confidencedFindings = sortByConfidence(filterByConfidence(scored));
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Confidence scoring failed:', err);
+        }
+      })(),
+    );
+  }
+
+  // Await all extended features in parallel
+  if (extendedPromises.length > 0) {
+    await Promise.allSettled(extendedPromises);
+  }
+
   // Save to session
   saveAnalysisResult(sessionId, pageType, aiReview, req.lintResult, designHealthScore, referoComparison);
 
   return {
     sessionId,
     pageType,
+    ...(pageTypeData.confidence > 0 && { pageTypeConfidence: pageTypeData.confidence }),
+    ...(pageTypeData.signals.length > 0 && { pageTypeSignals: pageTypeData.signals }),
     lintResult: req.lintResult,
     aiReview,
     ...(referoComparison && { referoComparison }),
     designHealthScore,
     ...(designKnowledge && { designSystemSources: designKnowledge.sources }),
+    ...(threeLayerExplanations && { threeLayerExplanations }),
+    ...(confidencedFindings && { confidencedFindings }),
   };
 }
 

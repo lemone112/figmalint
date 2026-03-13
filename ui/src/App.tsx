@@ -3,7 +3,7 @@ import ChatContainer from './components/chat/ChatContainer';
 import SettingsPanel from './components/shared/SettingsPanel';
 import { useChat } from './hooks/useChat';
 import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
-import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData, PageSweepData, PageSweepRawData } from './lib/messages';
+import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData, PageSweepData, PageSweepRawData, MiniScoreData } from './lib/messages';
 import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow, analyzePageSweep } from './lib/api';
 
 export default function App() {
@@ -16,6 +16,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [selectionStale, setSelectionStale] = useState(false);
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null);
+  const [miniScore, setMiniScore] = useState<MiniScoreData | null>(null);
   const analyzedNodeId = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const walkthroughIndex = useRef(0);
@@ -280,10 +281,16 @@ export default function App() {
           case 'selection-changed': {
             const selData = event.data as { hasSelection: boolean; nodeId: string | null; nodeName: string | null };
             setCurrentNodeName(selData.nodeName);
+            // Clear mini-score when selection clears
+            if (!selData.hasSelection) setMiniScore(null);
             // Mark results as stale if selection differs from analyzed node; clear if it matches again
             if (chat.lintResult && analyzedNodeId.current) {
               setSelectionStale(selData.nodeId !== analyzedNodeId.current);
             }
+            break;
+          }
+          case 'selection-mini-score': {
+            setMiniScore(event.data as MiniScoreData);
             break;
           }
         }
@@ -690,6 +697,7 @@ export default function App() {
         state={chat}
         componentName={componentName}
         analysisMode={analysisMode}
+        miniScore={miniScore}
         onAnalyze={handleAnalyze}
         onSendMessage={handleSendMessage}
         onAction={handleAction}

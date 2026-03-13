@@ -1,51 +1,63 @@
+import { GROUNDING_INSTRUCTIONS } from './shared/grounding-instructions.js';
+
 /**
- * Visual Attention Prediction prompt.
- * Asks Claude Vision to predict where users will look and how attention flows.
+ * Attention/visual-hierarchy analysis prompt.
+ * Used by the extended analyzer to evaluate where the eye is drawn.
  */
-export function buildAttentionPrompt(lintContext: string): string {
-  return `Analyze this UI screenshot for visual attention patterns. Use established eye-tracking research (Nielsen Norman Group, Gutenberg diagram) to predict user gaze behavior.
+export function buildAttentionPrompt(componentInfo: string): string {
+  return `Analyze the visual attention flow in this UI screenshot.
 
-Context from automated lint:
-${lintContext}
+## Context
+${componentInfo}
 
-Evaluate all of the following:
+## Evaluation Criteria
 
-## 1. Focal Point Identification
-What element draws the eye first? Consider size, contrast, color saturation, isolation (whitespace), and position. Is this element the intended primary CTA or key content?
+### 1. Focal Point Clarity
+- Is there one clear primary focal point?
+- Does the visual hierarchy guide the eye in a logical sequence (primary -> secondary -> tertiary)?
+- Are F-pattern or Z-pattern reading flows supported?
 
-## 2. Reading Flow Pattern
-Does the layout guide the eye in an F-pattern (typical for content-heavy pages with left-aligned text), Z-pattern (typical for landing pages with hero + CTA), linear (single-column scroll), or scattered (no clear flow)?
+### 2. Visual Weight Distribution
+- Is visual weight (size, color, contrast) distributed intentionally?
+- Do important elements have the most visual weight?
+- Are decorative elements competing with functional ones?
 
-## 3. Attention Competition
-Identify elements that compete for attention simultaneously. Look for: multiple high-contrast elements at similar visual weight, competing CTAs, clashing colors, or animation-suggesting elements (spinners, progress bars) that would pull focus.
+### 3. CTA Prominence
+- Is the primary call-to-action the most visually prominent interactive element?
+- Is there clear differentiation between primary, secondary, and tertiary actions?
+- Can a user identify the next step within 3 seconds?
 
-## 4. Attention Dead Zones
-Identify areas users are likely to skip. Common dead zones: right sidebar content (banner blindness), below-the-fold content with no scroll affordance, low-contrast text blocks, dense text without headings.
+### 4. Information Density
+- Is the content density appropriate for the page type?
+- Are there clear content groups separated by whitespace?
+- Is progressive disclosure used where appropriate?
 
-## 5. Visual Weight Distribution
-Assess whether the overall visual weight is balanced or skewed. Consider element density, color weight, and whitespace distribution across the four quadrants.
-
-Respond in this exact JSON format:
+## Response Format (JSON)
 {
   "focalPoint": {
-    "element": "<description of the element that draws attention first>",
-    "strength": "strong|moderate|weak",
-    "isIntendedCTA": true|false
+    "exists": true|false,
+    "element": "<description of primary focal point>",
+    "strength": "strong|moderate|weak"
   },
   "readingFlow": {
-    "pattern": "F|Z|linear|scattered",
-    "confidence": "high|medium|low",
-    "description": "<1-2 sentence explanation of how the eye moves through the design>"
+    "pattern": "F-pattern|Z-pattern|scattered|linear",
+    "blockers": ["<elements that interrupt natural flow>"]
   },
-  "competingElements": [
-    { "element": "<element description>", "reason": "<why it competes for attention>" }
+  "ctaProminence": {
+    "rating": "pass|needs_improvement|fail",
+    "primaryCta": "<description>",
+    "competingElements": ["<element competing for attention>"]
+  },
+  "findings": [
+    {
+      "finding": "<specific observation>",
+      "confidence": 0.0,
+      "evidence": "<element or region reference>",
+      "category": "attention",
+      "severity": "critical|warning|info"
+    }
   ],
-  "deadZones": [
-    { "area": "<area description>", "suggestion": "<how to draw attention to this area>" }
-  ],
-  "visualWeightBalance": "balanced|left-heavy|right-heavy|top-heavy|bottom-heavy",
-  "recommendations": [
-    { "title": "<short title>", "description": "<specific actionable suggestion>", "severity": "critical|warning|info" }
-  ]
-}`;
+  "summary": "<2-3 sentence summary>"
+}
+${GROUNDING_INSTRUCTIONS}`;
 }

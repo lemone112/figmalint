@@ -6,8 +6,8 @@ import {
   type ExtendedFeatures,
 } from '../services/extended-analyzer.js';
 
-interface AnalyzeRequestBody extends AnalyzeRequest {
-  features?: ExtendedFeatures;
+interface AnalyzeRequestBody extends Omit<AnalyzeRequest, 'features'> {
+  features?: AnalyzeRequest['features'] & ExtendedFeatures;
 }
 
 const app = new Hono();

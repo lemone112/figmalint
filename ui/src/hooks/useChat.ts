@@ -106,6 +106,8 @@ export interface ChatState {
   messages: ChatMessage[];
   lintResult: LintResult | null;
   score: ScoreBreakdown | null;
+  /** Previous scan score — used to show delta in StickyHeader even without a baseline */
+  prevScore: number | null;
   isAnalyzing: boolean;
   issuesFixed: number;
   sessionId: string | null;
@@ -120,6 +122,7 @@ export function useChat() {
     messages: [],
     lintResult: null,
     score: null,
+    prevScore: null,
     isAnalyzing: false,
     issuesFixed: 0,
     sessionId: null,
@@ -149,7 +152,14 @@ export function useChat() {
 
   const handleLintResult = useCallback((result: LintResult) => {
     const score = computeScoreBreakdown(result);
-    const fixableCount = result.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length;
+    // All auto-fixable types: spacing, radius, naming (rename), fill/stroke/effect (apply style)
+    const FIXABLE_TYPES = new Set(['spacing', 'radius', 'fill', 'stroke', 'effect', 'text', 'autoLayout']);
+    const fixableCount = result.errors.filter(e => FIXABLE_TYPES.has(e.errorType)).length;
+
+    // Group fixable by category for targeted fix buttons
+    const fixableSpacing = result.errors.filter(e => e.errorType === 'spacing').length;
+    const fixableRadius = result.errors.filter(e => e.errorType === 'radius').length;
+    const fixableStyles = result.errors.filter(e => e.errorType === 'fill' || e.errorType === 'stroke' || e.errorType === 'effect' || e.errorType === 'text').length;
 
     const messages: ChatMessage[] = [
       createMessage({ kind: 'score-card', data: score }),
@@ -165,18 +175,23 @@ export function useChat() {
     ];
 
     if (fixableCount > 0 || result.errors.length > 0) {
-      messages.push(
-        createMessage({
-          kind: 'action-buttons',
-          buttons: [
-            ...(fixableCount > 0
-              ? [{ id: 'fix-all', label: `Fix all auto-fixable (${fixableCount})`, variant: 'primary' as const, action: 'fix-all' }]
-              : []),
-            { id: 'walkthrough', label: 'Walk through issues', variant: 'secondary' as const, action: 'walkthrough' },
-            { id: 'rescan', label: 'Re-scan', variant: 'ghost' as const, action: 'rescan' },
-          ],
-        })
-      );
+      const buttons = [];
+      if (fixableCount > 0) {
+        buttons.push({ id: 'fix-all', label: `Fix all (${fixableCount})`, variant: 'primary' as const, action: 'fix-all' });
+      }
+      if (fixableSpacing > 0) {
+        buttons.push({ id: 'fix-spacing', label: `Fix spacing (${fixableSpacing})`, variant: 'secondary' as const, action: 'fix-all-spacing' });
+      }
+      if (fixableRadius > 0) {
+        buttons.push({ id: 'fix-radius', label: `Fix radii (${fixableRadius})`, variant: 'secondary' as const, action: 'fix-all-radius' });
+      }
+      if (fixableStyles > 0) {
+        buttons.push({ id: 'fix-styles', label: `Fix styles (${fixableStyles})`, variant: 'secondary' as const, action: 'fix-all-styles' });
+      }
+      buttons.push({ id: 'walkthrough', label: 'Walk through issues', variant: 'ghost' as const, action: 'walkthrough' });
+      buttons.push({ id: 'rescan', label: 'Re-scan', variant: 'ghost' as const, action: 'rescan' });
+
+      messages.push(createMessage({ kind: 'action-buttons', buttons }));
     }
 
     setState(prev => ({
@@ -282,6 +297,7 @@ export function useChat() {
         ...prev,
         lintResult: result,
         score: newScore,
+        prevScore: prev.score?.overall ?? prev.prevScore,
         messages: [...prev.messages, ...msgs],
       };
     });
@@ -433,6 +449,7 @@ export function useChat() {
       messages: [],
       lintResult: null,
       score: null,
+      prevScore: null,
       isAnalyzing: false,
       issuesFixed: 0,
       sessionId: null,
@@ -471,6 +488,24 @@ export function useChat() {
   };
 }
 
+/** Map error type to human-readable label. */
+const TYPE_LABEL: Record<string, string> = {
+  fill: 'fill styles', stroke: 'stroke styles', effect: 'effect styles', text: 'text styles',
+  radius: 'non-standard radii', spacing: 'off-grid spacing', autoLayout: 'auto-layout',
+  accessibility: 'accessibility', visualQuality: 'visual quality', microcopy: 'microcopy',
+  conversion: 'conversion', cognitive: 'cognitive load', fittsLaw: "Fitts's law",
+  gestalt: 'Gestalt', detachedInstance: 'detached instances', responsive: 'responsive',
+};
+
+/** Map category key to its weight for "biggest impact" sorting. */
+const CATEGORY_WEIGHT: Record<string, number> = {
+  fill: 0.20, stroke: 0.20, effect: 0.20, text: 0.20, // tokens bucket
+  accessibility: 0.20,
+  spacing: 0.12, visualQuality: 0.10, conversion: 0.10,
+  microcopy: 0.08, cognitive: 0.08, autoLayout: 0.08,
+  radius: 0.04, // naming bucket
+};
+
 function buildLintSummaryText(result: LintResult, score: ScoreBreakdown): string {
   const { totalErrors } = result.summary;
   const byType = result.summary.byType;
@@ -479,19 +514,23 @@ function buildLintSummaryText(result: LintResult, score: ScoreBreakdown): string
     return 'All layers use proper design styles. No lint issues found!';
   }
 
-  const parts: string[] = [];
-  if (byType.fill > 0) parts.push(`${byType.fill} missing fill styles`);
-  if (byType.stroke > 0) parts.push(`${byType.stroke} missing stroke styles`);
-  if (byType.effect > 0) parts.push(`${byType.effect} missing effect styles`);
-  if (byType.text > 0) parts.push(`${byType.text} missing text styles`);
-  if (byType.radius > 0) parts.push(`${byType.radius} non-standard radii`);
-  if (byType.spacing > 0) parts.push(`${byType.spacing} off-grid spacing`);
-  if (byType.autoLayout > 0) parts.push(`${byType.autoLayout} missing auto-layout`);
-  if (byType.accessibility > 0) parts.push(`${byType.accessibility} accessibility issues`);
-  if (byType.visualQuality > 0) parts.push(`${byType.visualQuality} visual quality issues`);
-  if (byType.microcopy > 0) parts.push(`${byType.microcopy} microcopy issues`);
+  // Collect non-zero categories and sort by impact (weight * count)
+  const cats = Object.entries(byType)
+    .filter(([, count]) => count > 0)
+    .map(([type, count]) => ({ type, count, impact: (CATEGORY_WEIGHT[type] || 0.04) * count }))
+    .sort((a, b) => b.impact - a.impact);
 
-  const fixable = result.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length;
+  // Top 3 for summary-first view
+  const topCategories = cats.slice(0, 3).map(c => `**${c.count}** ${TYPE_LABEL[c.type] || c.type}`);
+  const remaining = cats.slice(3).reduce((sum, c) => sum + c.count, 0);
 
-  return `Found **${totalErrors} issues** (score: ${score.overall}/100):\n${parts.join(', ')}.\n${fixable > 0 ? `\n${fixable} can be auto-fixed.` : ''}`;
+  const FIXABLE_TYPES = new Set(['spacing', 'radius', 'fill', 'stroke', 'effect', 'text', 'autoLayout']);
+  const fixable = result.errors.filter(e => FIXABLE_TYPES.has(e.errorType)).length;
+
+  let text = `**${totalErrors} issues** found — biggest impact: ${topCategories.join(', ')}`;
+  if (remaining > 0) text += ` + ${remaining} more`;
+  text += '.';
+  if (fixable > 0) text += ` **${fixable} auto-fixable.**`;
+
+  return text;
 }
