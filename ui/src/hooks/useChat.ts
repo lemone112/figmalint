@@ -38,7 +38,7 @@ const GENERIC_NAME_RE = /^(Frame|Group|Rectangle|Ellipse|Vector|Line|Polygon|Sta
 
 /**
  * Compute Design Health Score — purely deterministic, no AI.
- * 7 categories: Tokens (25%), Spacing (18%), Layout (10%), Accessibility (25%), Naming (7%), Visual Quality (8%), Microcopy (7%).
+ * 9 categories: Tokens (20%), A11y (20%), Spacing (12%), Visual (10%), Microcopy (8%), Conversion (10%), Cognitive (8%), Layout (8%), Naming (4%).
  */
 function computeScoreBreakdown(result: LintResult): ScoreBreakdown {
   const total = result.summary.totalNodes || 1;
@@ -78,18 +78,28 @@ function computeScoreBreakdown(result: LintResult): ScoreBreakdown {
   const microcopyErrors = result.errors.filter(e => e.errorType === 'microcopy');
   const microcopy = severityScore(microcopyErrors, total);
 
-  // Weighted average (25/18/10/25/7/8/7)
+  // Conversion
+  const conversionErrors = result.errors.filter(e => e.errorType === 'conversion');
+  const conversion = severityScore(conversionErrors, total);
+
+  // Cognitive
+  const cognitiveErrors = result.errors.filter(e => e.errorType === 'cognitive');
+  const cognitive = severityScore(cognitiveErrors, total);
+
+  // Weighted average (20/20/12/10/8/10/8/8/4) — 9 categories, aligned with backend
   const overall = Math.round(
-    tokens.score * 0.25 +
-    spacing.score * 0.18 +
-    layout.score * 0.10 +
-    accessibility.score * 0.25 +
-    naming.score * 0.07 +
-    visualQuality.score * 0.08 +
-    microcopy.score * 0.07
+    tokens.score * 0.20 +
+    accessibility.score * 0.20 +
+    spacing.score * 0.12 +
+    visualQuality.score * 0.10 +
+    microcopy.score * 0.08 +
+    conversion.score * 0.10 +
+    cognitive.score * 0.08 +
+    layout.score * 0.08 +
+    naming.score * 0.04
   );
 
-  return { overall, grade: getGrade(overall), tokens, spacing, layout, accessibility, naming, visualQuality, microcopy };
+  return { overall, grade: getGrade(overall), tokens, spacing, layout, accessibility, naming, visualQuality, microcopy, conversion, cognitive };
 }
 
 export interface ChatState {

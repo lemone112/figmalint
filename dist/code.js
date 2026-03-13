@@ -1190,6 +1190,592 @@
     }
   });
 
+  // src/lint/conversion.ts
+  function nextId6() {
+    return `conv-${++issueCounter6}`;
+  }
+  function isCTA(node) {
+    if (CTA_NAME_RE.test(node.name)) return true;
+    let parent = node.parent;
+    let depth = 0;
+    while (parent && depth < 3) {
+      if ("name" in parent && CTA_NAME_RE.test(parent.name)) return true;
+      parent = parent.parent;
+      depth++;
+    }
+    return false;
+  }
+  function isFormField(node) {
+    return FORM_FIELD_RE.test(node.name);
+  }
+  function getBackgroundColor(frame) {
+    if (!("fills" in frame)) return null;
+    const fills = frame.fills;
+    if (fills === figma.mixed || !Array.isArray(fills)) return null;
+    const solid = fills.find((f) => f.type === "SOLID" && f.visible !== false);
+    return solid ? solid.color : null;
+  }
+  function luminance(r, g, b) {
+    const sRGB = [r, g, b].map((c) => {
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * sRGB[0] + 0.7152 * sRGB[1] + 0.0722 * sRGB[2];
+  }
+  function contrastRatio(l1, l2) {
+    const lighter = Math.max(l1, l2);
+    const darker = Math.min(l1, l2);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+  function collectCTAs(node, results, offsetY, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isCTA(node) && "width" in node && "height" in node) {
+      results.push({
+        node,
+        x: "x" in node ? node.x : 0,
+        y: "y" in node ? node.y : 0,
+        width: node.width,
+        height: node.height,
+        absoluteY: offsetY + ("y" in node ? node.y : 0)
+      });
+    }
+    if ("children" in node) {
+      const childOffset = offsetY + ("y" in node ? node.y : 0);
+      for (const child of node.children) {
+        collectCTAs(child, results, childOffset, skipLocked, skipHidden);
+      }
+    }
+  }
+  function collectFormFields(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isFormField(node)) {
+      let hasLabel = false;
+      const parent = node.parent;
+      if (parent && "children" in parent) {
+        for (const sibling of parent.children) {
+          if (sibling.type === "TEXT" && sibling.id !== node.id) {
+            hasLabel = true;
+            break;
+          }
+        }
+      }
+      results.push({ node, hasLabel });
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectFormFields(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function hasNodeMatching(node, pattern, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return false;
+    if (skipHidden && "visible" in node && !node.visible) return false;
+    if (pattern.test(node.name)) return true;
+    if ("children" in node) {
+      for (const child of node.children) {
+        if (hasNodeMatching(child, pattern, skipLocked, skipHidden)) return true;
+      }
+    }
+    return false;
+  }
+  function checkCTAPosition(frame, ctas, issues) {
+    if (ctas.length === 0) return false;
+    if (!("height" in frame)) return false;
+    const foldLine = frame.height * 0.7;
+    const aboveFold = ctas.some((cta) => cta.y + cta.height < foldLine);
+    if (!aboveFold) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: `No primary CTA visible above the fold (top 70% of frame). Move the main action higher for better conversion.`,
+        currentValue: `CTA at ${Math.round(ctas[0].y)}px, fold at ${Math.round(foldLine)}px`,
+        suggestions: ["Place primary CTA within top 70% of the viewport", "Add a secondary CTA near the top if main CTA must stay below"],
+        autoFixable: false
+      });
+    }
+    return aboveFold;
+  }
+  function checkCTAContrast(frame, ctas, issues) {
+    const bgColor = getBackgroundColor(frame);
+    if (!bgColor) return;
+    const bgLum = luminance(bgColor.r, bgColor.g, bgColor.b);
+    for (const cta of ctas) {
+      const ctaColor = getBackgroundColor(cta.node);
+      if (!ctaColor) continue;
+      const ctaLum = luminance(ctaColor.r, ctaColor.g, ctaColor.b);
+      const ratio = contrastRatio(bgLum, ctaLum);
+      if (ratio < 3) {
+        const ctaHex = rgbToHex(ctaColor.r, ctaColor.g, ctaColor.b);
+        const bgHex = rgbToHex(bgColor.r, bgColor.g, bgColor.b);
+        issues.push({
+          id: nextId6(),
+          type: "accessibility",
+          severity: "warning",
+          nodeId: cta.node.id,
+          nodeName: cta.node.name,
+          message: `CTA contrast ratio ${ratio.toFixed(1)}:1 (${ctaHex} on ${bgHex}) \u2014 too low. CTAs should stand out with \u22653:1 contrast against background.`,
+          currentValue: `${ratio.toFixed(1)}:1`,
+          suggestions: ["Increase CTA background contrast to at least 3:1", "Use a bolder accent color for the primary action"],
+          autoFixable: false
+        });
+      }
+    }
+  }
+  function checkFormFriction(frame, fields, issues) {
+    if (fields.length > 5) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: `${fields.length} form fields on one screen. More than 5 fields increases abandonment \u2014 consider splitting into steps or removing optional fields.`,
+        currentValue: `${fields.length} fields`,
+        suggestions: [
+          "Split into multi-step form with progress indicator",
+          'Remove optional fields or move to "Advanced" section',
+          "Expedia gained $12M/year by removing one field"
+        ],
+        autoFixable: false
+      });
+    }
+    const unlabeled = fields.filter((f) => !f.hasLabel);
+    if (unlabeled.length > 0) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: unlabeled[0].node.id,
+        nodeName: unlabeled[0].node.name,
+        message: `${unlabeled.length} form field${unlabeled.length === 1 ? "" : "s"} without visible labels. Labels improve completion rate and accessibility.`,
+        currentValue: `${unlabeled.length} unlabeled`,
+        suggestions: ["Add visible label text above or beside each input", "Don't rely on placeholder text alone as labels"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkProgressIndicator(frame, fields, issues, skipLocked, skipHidden) {
+    if (fields.length <= 3) return false;
+    const hasProgress = hasNodeMatching(frame, PROGRESS_RE, skipLocked, skipHidden);
+    if (!hasProgress && fields.length > 5) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: "Long form without progress indicator. A step counter or progress bar reduces perceived effort.",
+        suggestions: ['Add "Step 1 of 3" or a progress bar', "Show users how far they've come and what's left"],
+        autoFixable: false
+      });
+    }
+    return hasProgress;
+  }
+  function checkTrustSignals(frame, ctas, issues, skipLocked, skipHidden) {
+    if (ctas.length === 0) return;
+    const hasForm = hasNodeMatching(frame, FORM_FIELD_RE, skipLocked, skipHidden);
+    if (!hasForm) return;
+    const hasTrust = hasNodeMatching(frame, TRUST_RE, skipLocked, skipHidden);
+    if (!hasTrust) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: "Form with CTA but no trust signals (security badges, reviews, guarantees). Trust elements near CTAs increase conversion.",
+        suggestions: ["Add security badge or lock icon near submit button", "Show testimonials, ratings, or guarantees near the CTA"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkConversion(nodes, options = {}) {
+    var _a, _b;
+    issueCounter6 = 0;
+    const issues = [];
+    const skipLocked = (_a = options.skipLocked) != null ? _a : true;
+    const skipHidden = (_b = options.skipHidden) != null ? _b : true;
+    let totalCTAs = 0;
+    let totalFields = 0;
+    let anyAboveFold = false;
+    let anyProgress = false;
+    let totalChecked = 0;
+    for (const node of nodes) {
+      const ctas = [];
+      collectCTAs(node, ctas, 0, skipLocked, skipHidden);
+      totalCTAs += ctas.length;
+      const fields = [];
+      collectFormFields(node, fields, skipLocked, skipHidden);
+      totalFields += fields.length;
+      if (ctas.length > 0) {
+        const above = checkCTAPosition(node, ctas, issues);
+        if (above) anyAboveFold = true;
+        checkCTAContrast(node, ctas, issues);
+        totalChecked += 2;
+      }
+      if (fields.length > 0) {
+        checkFormFriction(node, fields, issues);
+        const progress = checkProgressIndicator(node, fields, issues, skipLocked, skipHidden);
+        if (progress) anyProgress = true;
+        totalChecked += 2;
+      }
+      checkTrustSignals(node, ctas, issues, skipLocked, skipHidden);
+      totalChecked++;
+    }
+    return {
+      issues,
+      metrics: {
+        ctaCount: totalCTAs,
+        formFieldCount: totalFields,
+        ctaAboveFold: anyAboveFold,
+        hasProgressIndicator: anyProgress
+      },
+      summary: {
+        totalChecked,
+        passed: totalChecked - issues.length,
+        failed: issues.length
+      }
+    };
+  }
+  var issueCounter6, CTA_NAME_RE, FORM_FIELD_RE, PROGRESS_RE, TRUST_RE;
+  var init_conversion = __esm({
+    "src/lint/conversion.ts"() {
+      "use strict";
+      init_figma_helpers();
+      issueCounter6 = 0;
+      CTA_NAME_RE = /button|btn|cta|action|submit|primary/i;
+      FORM_FIELD_RE = /input|field|text.?area|select|dropdown|picker|combo|search|email|password|phone|number.?field/i;
+      PROGRESS_RE = /progress|step|stepper|breadcrumb|wizard|indicator|pagination/i;
+      TRUST_RE = /badge|trust|security|lock|shield|guarantee|verified|secure|ssl|certification|review|rating|star/i;
+    }
+  });
+
+  // src/lint/cognitive.ts
+  function nextId7() {
+    return `cog-${++issueCounter7}`;
+  }
+  function isNavContainer(node) {
+    return NAV_RE.test(node.name);
+  }
+  function isNavItem(node) {
+    return NAV_ITEM_RE.test(node.name);
+  }
+  function isCTA2(node) {
+    return CTA_RE.test(node.name);
+  }
+  function isHeading(node) {
+    return HEADING_RE.test(node.name);
+  }
+  function isDisabled(node) {
+    return DISABLED_RE.test(node.name);
+  }
+  function isIconOnly(node) {
+    if (!ICON_RE.test(node.name) && !CTA_RE.test(node.name)) return false;
+    if (!("children" in node)) return false;
+    const children = node.children;
+    const hasText = children.some((c) => c.type === "TEXT");
+    const hasIcon = children.some(
+      (c) => c.type === "VECTOR" || c.type === "BOOLEAN_OPERATION" || ICON_RE.test(c.name)
+    );
+    return hasIcon && !hasText;
+  }
+  function collectNavItems(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isNavItem(node)) {
+      results.push(node);
+      return;
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectNavItems(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function collectCTAs2(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isCTA2(node)) {
+      results.push(node);
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectCTAs2(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function extractHeadingLevel(name) {
+    const match = name.match(/h(\d)/i);
+    if (match) return parseInt(match[1], 10);
+    if (/title|headline/i.test(name)) return 1;
+    if (/subtitle|subhead/i.test(name)) return 2;
+    if (/heading/i.test(name)) return 2;
+    return null;
+  }
+  function collectHeadings(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isHeading(node)) {
+      const level = extractHeadingLevel(node.name);
+      if (level !== null) {
+        results.push({ node, level });
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectHeadings(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function measureNestingDepth(node, currentDepth, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return currentDepth;
+    if (skipHidden && "visible" in node && !node.visible) return currentDepth;
+    let max = currentDepth;
+    if ("children" in node) {
+      for (const child of node.children) {
+        const childDepth = measureNestingDepth(child, currentDepth + 1, skipLocked, skipHidden);
+        if (childDepth > max) max = childDepth;
+      }
+    }
+    return max;
+  }
+  function collectDisabledElements(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isDisabled(node) && ("opacity" in node && node.opacity < 1)) {
+      results.push(node);
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectDisabledElements(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function collectIconOnlyButtons(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isCTA2(node) && isIconOnly(node)) {
+      results.push(node);
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectIconOnlyButtons(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function checkNavItemOverload(frame, issues, skipLocked, skipHidden) {
+    const navContainers = [];
+    findNavContainers(frame, navContainers, skipLocked, skipHidden);
+    let totalNavItems = 0;
+    for (const nav of navContainers) {
+      const items = [];
+      collectNavItems(nav, items, skipLocked, skipHidden);
+      totalNavItems += items.length;
+      if (items.length > 7) {
+        issues.push({
+          id: nextId7(),
+          type: "accessibility",
+          severity: "warning",
+          nodeId: nav.id,
+          nodeName: nav.name,
+          message: `Navigation has ${items.length} items \u2014 Miller's Law suggests 7\xB12 is the working memory limit. Consider grouping or progressive disclosure.`,
+          currentValue: `${items.length} nav items`,
+          suggestions: [
+            "Group related items under expandable sections",
+            'Use "More" menu for less-used items',
+            "Limit primary navigation to 5-7 items"
+          ],
+          autoFixable: false
+        });
+      }
+    }
+    return totalNavItems;
+  }
+  function findNavContainers(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isNavContainer(node)) {
+      results.push(node);
+      return;
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        findNavContainers(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function checkCTAOverload(frame, issues, skipLocked, skipHidden) {
+    const ctas = [];
+    collectCTAs2(frame, ctas, skipLocked, skipHidden);
+    if (ctas.length > 5) {
+      issues.push({
+        id: nextId7(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: frame.id,
+        nodeName: frame.name,
+        message: `${ctas.length} CTAs/buttons on one screen \u2014 choice overload reduces decision-making ability (Hick's Law). Prioritize one primary action.`,
+        currentValue: `${ctas.length} CTAs`,
+        suggestions: [
+          "Establish clear primary/secondary/tertiary action hierarchy",
+          "Reduce to 1 primary CTA per viewport",
+          "Group related actions in a dropdown or overflow menu"
+        ],
+        autoFixable: false
+      });
+    }
+    return ctas.length;
+  }
+  function checkHeadingHierarchy(frame, issues, skipLocked, skipHidden) {
+    const headings = [];
+    collectHeadings(frame, headings, skipLocked, skipHidden);
+    if (headings.length < 2) return headings.map((h) => h.level);
+    const sorted = headings.sort((a, b) => {
+      const aY = "y" in a.node ? a.node.y : 0;
+      const bY = "y" in b.node ? b.node.y : 0;
+      return aY - bY;
+    });
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1].level;
+      const curr = sorted[i].level;
+      if (curr > prev + 1) {
+        issues.push({
+          id: nextId7(),
+          type: "accessibility",
+          severity: "info",
+          nodeId: sorted[i].node.id,
+          nodeName: sorted[i].node.name,
+          message: `Heading hierarchy gap: jumps from level ${prev} to level ${curr}. Screen readers and users rely on sequential heading structure.`,
+          currentValue: `h${prev} \u2192 h${curr}`,
+          suggestions: [
+            `Add an h${prev + 1} between these levels`,
+            "Ensure headings follow a logical descending order"
+          ],
+          autoFixable: false
+        });
+      }
+    }
+    return sorted.map((h) => h.level);
+  }
+  function checkDisabledWithoutReason(frame, issues, skipLocked, skipHidden) {
+    var _a;
+    const disabled = [];
+    collectDisabledElements(frame, disabled, skipLocked, skipHidden);
+    for (const node of disabled) {
+      const parent = node.parent;
+      let hasExplanation = false;
+      if (parent && "children" in parent) {
+        for (const sibling of parent.children) {
+          if (sibling.type === "TEXT" && sibling.id !== node.id) {
+            const text = ((_a = sibling.characters) == null ? void 0 : _a.toLowerCase()) || "";
+            if (text.includes("required") || text.includes("complete") || text.includes("fill") || text.includes("select") || text.includes("first")) {
+              hasExplanation = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!hasExplanation) {
+        issues.push({
+          id: nextId7(),
+          type: "accessibility",
+          severity: "info",
+          nodeId: node.id,
+          nodeName: node.name,
+          message: `Disabled element "${node.name}" without visible explanation. Users should understand WHY an action is unavailable and how to enable it.`,
+          suggestions: [
+            "Add helper text explaining what needs to happen first",
+            "Use a tooltip on hover explaining the disabled state",
+            'Show a brief inline message (e.g., "Complete all fields to continue")'
+          ],
+          autoFixable: false
+        });
+      }
+    }
+  }
+  function checkIconOnlyButtons(frame, issues, skipLocked, skipHidden) {
+    const iconButtons = [];
+    collectIconOnlyButtons(frame, iconButtons, skipLocked, skipHidden);
+    if (iconButtons.length > 3) {
+      issues.push({
+        id: nextId7(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: frame.id,
+        nodeName: frame.name,
+        message: `${iconButtons.length} icon-only buttons without text labels. Icons alone are ambiguous \u2014 add labels or ensure tooltips are present.`,
+        currentValue: `${iconButtons.length} icon-only`,
+        suggestions: [
+          "Add visible text labels to icon buttons",
+          "Add tooltips that appear on hover/focus",
+          "Use aria-label for accessibility (ensure design indicates this)"
+        ],
+        autoFixable: false
+      });
+    }
+    return iconButtons.length;
+  }
+  function checkCognitive(nodes, options = {}) {
+    var _a, _b;
+    issueCounter7 = 0;
+    const issues = [];
+    const skipLocked = (_a = options.skipLocked) != null ? _a : true;
+    const skipHidden = (_b = options.skipHidden) != null ? _b : true;
+    let totalNavItems = 0;
+    let totalCTAs = 0;
+    let maxDepth = 0;
+    let allHeadingLevels = [];
+    let totalIconOnly = 0;
+    let totalChecked = 0;
+    for (const node of nodes) {
+      totalNavItems += checkNavItemOverload(node, issues, skipLocked, skipHidden);
+      totalChecked++;
+      totalCTAs += checkCTAOverload(node, issues, skipLocked, skipHidden);
+      totalChecked++;
+      const levels = checkHeadingHierarchy(node, issues, skipLocked, skipHidden);
+      allHeadingLevels = [...allHeadingLevels, ...levels];
+      totalChecked++;
+      checkDisabledWithoutReason(node, issues, skipLocked, skipHidden);
+      totalChecked++;
+      totalIconOnly += checkIconOnlyButtons(node, issues, skipLocked, skipHidden);
+      totalChecked++;
+      const depth = measureNestingDepth(node, 0, skipLocked, skipHidden);
+      if (depth > maxDepth) maxDepth = depth;
+    }
+    return {
+      issues,
+      metrics: {
+        navItemCount: totalNavItems,
+        ctaCount: totalCTAs,
+        maxNestingDepth: maxDepth,
+        headingLevels: [...new Set(allHeadingLevels)].sort(),
+        iconOnlyButtons: totalIconOnly
+      },
+      summary: {
+        totalChecked,
+        passed: totalChecked - issues.length,
+        failed: issues.length
+      }
+    };
+  }
+  var issueCounter7, NAV_RE, NAV_ITEM_RE, CTA_RE, HEADING_RE, DISABLED_RE, ICON_RE;
+  var init_cognitive = __esm({
+    "src/lint/cognitive.ts"() {
+      "use strict";
+      issueCounter7 = 0;
+      NAV_RE = /nav|menu|sidebar|tab.?bar|bottom.?bar|header.?nav|navigation|top.?bar/i;
+      NAV_ITEM_RE = /nav.?item|menu.?item|tab(?!le)|link/i;
+      CTA_RE = /button|btn|cta|action|submit|primary/i;
+      HEADING_RE = /heading|title|h[1-6]|headline/i;
+      DISABLED_RE = /disabled|inactive|dimmed|greyed/i;
+      ICON_RE = /icon|ico|svg|glyph/i;
+    }
+  });
+
   // src/core/design-lint.ts
   var design_lint_exports = {};
   __export(design_lint_exports, {
@@ -1574,6 +2160,42 @@
         });
       }
     }
+    if (settings.checkConversion && severityOverrides.conversion !== "off") {
+      const convResult = checkConversion(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+      for (const issue of convResult.issues) {
+        if (ignoredNodeIds.has(issue.nodeId)) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "conversion"))) continue;
+        if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "conversion",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName,
+          severity: issue.severity
+        });
+      }
+    }
+    if (settings.checkCognitive && severityOverrides.cognitive !== "off") {
+      const cogResult = checkCognitive(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+      for (const issue of cogResult.issues) {
+        if (ignoredNodeIds.has(issue.nodeId)) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "cognitive"))) continue;
+        if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "cognitive",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName,
+          severity: issue.severity
+        });
+      }
+    }
     const filteredErrors = errors.filter((err) => severityOverrides[err.errorType] !== "off");
     const finalErrors = ignorePatterns.length > 0 ? filteredErrors.filter((err) => !matchesIgnorePattern(err.nodeName, ignorePatterns)) : filteredErrors;
     for (const err of finalErrors) {
@@ -1602,11 +2224,17 @@
           case "microcopy":
             err.severity = "info";
             break;
+          case "conversion":
+            err.severity = "warning";
+            break;
+          case "cognitive":
+            err.severity = "info";
+            break;
         }
       }
     }
     const nodesWithErrors = new Set(finalErrors.map((e) => e.nodeId)).size;
-    const byType = { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0 };
+    const byType = { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0, conversion: 0, cognitive: 0 };
     for (const err of finalErrors) {
       byType[err.errorType]++;
     }
@@ -1630,7 +2258,7 @@
         errors: [],
         ignoredNodeIds: [],
         ignoredErrorKeys: [],
-        summary: { totalErrors: 0, byType: { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0 }, totalNodes: 0, nodesWithErrors: 0 }
+        summary: { totalErrors: 0, byType: { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0, conversion: 0, cognitive: 0 }, totalNodes: 0, nodesWithErrors: 0 }
       };
     }
     return runDesignLint(selection, settings);
@@ -1649,6 +2277,8 @@
       init_accessibility();
       init_visual_quality();
       init_microcopy();
+      init_conversion();
+      init_cognitive();
       DEFAULT_LINT_SETTINGS = {
         checkFills: true,
         checkStrokes: true,
@@ -1660,6 +2290,8 @@
         checkAccessibility: true,
         checkVisualQuality: true,
         checkMicrocopy: true,
+        checkConversion: true,
+        checkCognitive: true,
         allowedRadii: [0, 2, 4, 8, 12, 16, 24, 32],
         skipLockedLayers: true,
         skipHiddenLayers: true
@@ -7684,6 +8316,169 @@ ${scoringCriteria}
     return issues;
   }
 
+  // src/flow/cross-screen-checks.ts
+  init_figma_helpers();
+  function extractDesignValues(node, values, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if ("fills" in node) {
+      const fills = node.fills;
+      if (fills !== figma.mixed && Array.isArray(fills)) {
+        for (const fill of fills) {
+          if (fill.type === "SOLID" && fill.visible !== false) {
+            values.colors.add(rgbToHex(fill.color.r, fill.color.g, fill.color.b));
+          }
+        }
+      }
+    }
+    if ("strokes" in node) {
+      const strokes = node.strokes;
+      if (Array.isArray(strokes)) {
+        for (const stroke of strokes) {
+          if (stroke.type === "SOLID" && stroke.visible !== false) {
+            values.colors.add(rgbToHex(stroke.color.r, stroke.color.g, stroke.color.b));
+          }
+        }
+      }
+    }
+    if (node.type === "TEXT") {
+      const textNode = node;
+      if (textNode.fontName !== figma.mixed) {
+        values.fontFamilies.add(textNode.fontName.family);
+      }
+      if (textNode.fontSize !== figma.mixed) {
+        values.fontSizes.add(textNode.fontSize);
+      }
+    }
+    if ("layoutMode" in node && node.layoutMode !== "NONE") {
+      const frame = node;
+      if (typeof frame.itemSpacing === "number") values.spacingValues.add(frame.itemSpacing);
+      if (typeof frame.paddingTop === "number") values.spacingValues.add(frame.paddingTop);
+      if (typeof frame.paddingBottom === "number") values.spacingValues.add(frame.paddingBottom);
+      if (typeof frame.paddingLeft === "number") values.spacingValues.add(frame.paddingLeft);
+      if (typeof frame.paddingRight === "number") values.spacingValues.add(frame.paddingRight);
+    }
+    if (node.type === "INSTANCE") {
+      const mainComponent = node.mainComponent;
+      if (mainComponent) {
+        values.componentNames.add(mainComponent.name);
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        extractDesignValues(child, values, skipLocked, skipHidden);
+      }
+    }
+  }
+  function setDifference(a, b) {
+    const diff = /* @__PURE__ */ new Set();
+    for (const item of a) {
+      if (!b.has(item)) diff.add(item);
+    }
+    return diff;
+  }
+  function checkCrossScreenConsistency(frameNodes, options = {}) {
+    var _a, _b;
+    const skipLocked = (_a = options.skipLocked) != null ? _a : true;
+    const skipHidden = (_b = options.skipHidden) != null ? _b : true;
+    const issues = [];
+    if (frameNodes.length < 2) return issues;
+    const allValues = frameNodes.map(({ frame, node }) => {
+      const values = {
+        frameId: frame.id,
+        frameName: frame.name,
+        colors: /* @__PURE__ */ new Set(),
+        fontFamilies: /* @__PURE__ */ new Set(),
+        fontSizes: /* @__PURE__ */ new Set(),
+        spacingValues: /* @__PURE__ */ new Set(),
+        componentNames: /* @__PURE__ */ new Set()
+      };
+      extractDesignValues(node, values, skipLocked, skipHidden);
+      return values;
+    });
+    const colorFrequency = /* @__PURE__ */ new Map();
+    for (const v of allValues) {
+      for (const color of v.colors) {
+        colorFrequency.set(color, (colorFrequency.get(color) || 0) + 1);
+      }
+    }
+    const threshold = allValues.length * 0.5;
+    const globalPalette = /* @__PURE__ */ new Set();
+    for (const [color, freq] of colorFrequency) {
+      if (freq >= threshold) globalPalette.add(color);
+    }
+    for (const v of allValues) {
+      const uniqueColors = setDifference(v.colors, globalPalette);
+      if (uniqueColors.size > 3) {
+        issues.push({
+          type: "dead-end",
+          // reusing type, will display as consistency issue
+          severity: "warning",
+          frameIds: [v.frameId],
+          message: `"${v.frameName}" uses ${uniqueColors.size} colors not found in other screens (${[...uniqueColors].slice(0, 3).join(", ")}${uniqueColors.size > 3 ? "..." : ""}). Check for color inconsistency.`
+        });
+      }
+    }
+    const allFonts = /* @__PURE__ */ new Set();
+    for (const v of allValues) {
+      for (const font of v.fontFamilies) allFonts.add(font);
+    }
+    if (allFonts.size > 3) {
+      const fontList = [...allFonts].join(", ");
+      issues.push({
+        type: "dead-end",
+        severity: "warning",
+        frameIds: allValues.map((v) => v.frameId),
+        message: `${allFonts.size} different font families across flow: ${fontList}. Flows should use 1-2 font families for consistency.`
+      });
+    }
+    for (const v of allValues) {
+      const otherFonts = /* @__PURE__ */ new Set();
+      for (const other of allValues) {
+        if (other.frameId !== v.frameId) {
+          for (const f of other.fontFamilies) otherFonts.add(f);
+        }
+      }
+      const uniqueFonts = setDifference(v.fontFamilies, otherFonts);
+      if (uniqueFonts.size > 0 && allValues.length > 2) {
+        issues.push({
+          type: "dead-end",
+          severity: "info",
+          frameIds: [v.frameId],
+          message: `"${v.frameName}" uses font${uniqueFonts.size > 1 ? "s" : ""} not seen elsewhere: ${[...uniqueFonts].join(", ")}.`
+        });
+      }
+    }
+    const allSizes = /* @__PURE__ */ new Set();
+    for (const v of allValues) {
+      for (const size of v.fontSizes) allSizes.add(size);
+    }
+    if (allSizes.size > 10) {
+      issues.push({
+        type: "dead-end",
+        severity: "info",
+        frameIds: allValues.map((v) => v.frameId),
+        message: `${allSizes.size} unique font sizes across the flow. Consider using a type scale with fewer sizes for consistency.`
+      });
+    }
+    const allSpacing = /* @__PURE__ */ new Set();
+    for (const v of allValues) {
+      for (const s of v.spacingValues) {
+        if (s > 0) allSpacing.add(s);
+      }
+    }
+    const nonStandard = [...allSpacing].filter((s) => s % 4 !== 0 && s !== 2);
+    if (nonStandard.length > 3) {
+      issues.push({
+        type: "dead-end",
+        severity: "info",
+        frameIds: allValues.map((v) => v.frameId),
+        message: `${nonStandard.length} non-standard spacing values across flow (${nonStandard.slice(0, 4).join(", ")}px). Consider aligning to a 4px/8px grid.`
+      });
+    }
+    return issues;
+  }
+
   // src/fix/fix-spacing.ts
   init_types();
   var SPACING_PROPERTIES = [
@@ -9056,9 +9851,21 @@ Respond naturally and helpfully to the user's question.`;
           total: graph.frames.length
         });
       }
+      const frameNodesForConsistency = [];
+      for (const frame of graph.frames) {
+        const node = await figma.getNodeByIdAsync(frame.id);
+        if (node) {
+          frameNodesForConsistency.push({ frame, node });
+        }
+      }
+      const consistencyIssues = checkCrossScreenConsistency(frameNodesForConsistency, {
+        skipLocked: currentLintSettings.skipLockedLayers,
+        skipHidden: currentLintSettings.skipHiddenLayers
+      });
+      const allGraphIssues = [...graphIssues, ...consistencyIssues];
       sendMessageToUI("flow-analysis-result", {
         graph,
-        graphIssues,
+        graphIssues: allGraphIssues,
         screenshots,
         lintResults
       });

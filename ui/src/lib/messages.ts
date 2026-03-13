@@ -2,7 +2,7 @@
 // Message type definitions for Plugin ↔ UI communication
 // ──────────────────────────────────────────────
 
-export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy';
+export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy' | 'conversion' | 'cognitive';
 
 export interface LintError {
   nodeId: string;
@@ -114,7 +114,8 @@ export type ChatMessageType =
   | { kind: 'score-update'; data: { oldScore: number; newScore: number; issuesRemaining: number } }
   | { kind: 'ai-review'; data: AiReviewData }
   | { kind: 'refero-gallery'; data: ReferoComparisonData }
-  | { kind: 'analysis-phase'; phase: AnalysisPhase; done?: boolean };
+  | { kind: 'analysis-phase'; phase: AnalysisPhase; done?: boolean }
+  | { kind: 'flow-result'; data: FlowAnalysisData };
 
 export type AiRating = 'pass' | 'needs_improvement' | 'fail';
 
@@ -174,6 +175,8 @@ export interface ScoreBreakdown {
   naming: CategoryScore;
   visualQuality: CategoryScore;
   microcopy: CategoryScore;
+  conversion: CategoryScore;
+  cognitive: CategoryScore;
 }
 
 export interface ActionButton {
@@ -203,7 +206,74 @@ export type PluginEvent =
   | { type: 'api-key-saved'; data: { success: boolean } }
   | { type: 'screenshot-result'; data: { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number } }
   | { type: 'selection-changed'; data: { hasSelection: boolean; nodeId: string | null; nodeName: string | null } }
-  | { type: 'screenshot-error'; data: { error: string } };
+  | { type: 'screenshot-error'; data: { error: string } }
+  | { type: 'flow-analysis-started'; data: { status: string; progress?: number; total?: number } }
+  | { type: 'flow-analysis-result'; data: FlowAnalysisData }
+  | { type: 'flow-analysis-error'; data: { error: string } };
+
+// Flow Analysis Types
+export interface FlowGraphIssue {
+  type: string;
+  severity: 'critical' | 'warning' | 'info';
+  frameIds: string[];
+  message: string;
+}
+
+export interface FlowFrameData {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  isFlowStartingPoint: boolean;
+}
+
+export interface FlowGraphData {
+  frames: FlowFrameData[];
+  edges: Array<{
+    sourceFrameId: string;
+    sourceNodeName: string;
+    destinationFrameId: string;
+    trigger: string;
+    navigation: string;
+  }>;
+  entryPoints: string[];
+  deadEnds: string[];
+  orphans: string[];
+  unreachable: string[];
+  loops: string[][];
+  stats: {
+    totalFrames: number;
+    totalEdges: number;
+    totalEntryPoints: number;
+    maxDepth: number;
+    avgBranching: number;
+  };
+}
+
+export interface FlowAnalysisData {
+  graph: FlowGraphData;
+  graphIssues: FlowGraphIssue[];
+  screenshots: Record<string, string>;
+  lintResults: Record<string, LintResult>;
+  /** AI analysis results (populated after backend call) */
+  aiAnalysis?: {
+    scenarioAnalysis: {
+      missingScreens: Array<{ type: string; description: string; afterFrameName: string }>;
+      happyPathComplete: boolean;
+      errorRecoveryPaths: boolean;
+      backNavigationPresent: boolean;
+    };
+    consistencyAnalysis: {
+      colorDrift: boolean;
+      typographyDrift: boolean;
+      layoutConsistency: string;
+      terminologyConsistency: string;
+      evidence: string[];
+    };
+    recommendations: Array<{ title: string; description: string; severity: string; affectedFrames: string[] }>;
+    summary: string;
+  };
+}
 
 // UI → Plugin message commands
 export function postToPlugin(type: string, data?: unknown): void {
