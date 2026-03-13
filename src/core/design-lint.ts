@@ -5,6 +5,8 @@ import { rgbToHex } from '../utils/figma-helpers';
 import { checkSpacing } from '../lint/spacing';
 import { checkAutoLayout } from '../lint/auto-layout';
 import { checkAccessibility } from '../lint/accessibility';
+import { checkVisualQuality } from '../lint/visual-quality';
+import { checkMicrocopy } from '../lint/microcopy';
 
 // ──────────────────────────────────────────────
 // Default lint settings
@@ -19,6 +21,8 @@ export const DEFAULT_LINT_SETTINGS: LintSettings = {
   checkSpacing: true,
   checkAutoLayout: true,
   checkAccessibility: true,
+  checkVisualQuality: true,
+  checkMicrocopy: true,
   allowedRadii: [0, 2, 4, 8, 12, 16, 24, 32],
   skipLockedLayers: true,
   skipHiddenLayers: true,
@@ -476,6 +480,48 @@ export function runDesignLint(
     }
   }
 
+  // Run visual quality checks
+  if (settings.checkVisualQuality && severityOverrides.visualQuality !== 'off') {
+    const vqResult = checkVisualQuality(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+    for (const issue of vqResult.issues) {
+      if (ignoredNodeIds.has(issue.nodeId)) continue;
+      if (ignoredErrorKeys.has(errorKey(issue.nodeId, 'visualQuality'))) continue;
+      if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+
+      errors.push({
+        nodeId: issue.nodeId,
+        nodeName: issue.nodeName,
+        nodeType: 'FRAME',
+        errorType: 'visualQuality',
+        message: issue.message,
+        value: issue.currentValue || '',
+        path: issue.nodeName,
+        severity: issue.severity,
+      });
+    }
+  }
+
+  // Run microcopy / UX writing checks
+  if (settings.checkMicrocopy && severityOverrides.microcopy !== 'off') {
+    const mcResult = checkMicrocopy(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+    for (const issue of mcResult.issues) {
+      if (ignoredNodeIds.has(issue.nodeId)) continue;
+      if (ignoredErrorKeys.has(errorKey(issue.nodeId, 'microcopy'))) continue;
+      if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+
+      errors.push({
+        nodeId: issue.nodeId,
+        nodeName: issue.nodeName,
+        nodeType: 'TEXT',
+        errorType: 'microcopy',
+        message: issue.message,
+        value: issue.currentValue || '',
+        path: issue.nodeName,
+        severity: issue.severity,
+      });
+    }
+  }
+
   // Filter out errors for rules set to 'off' via severity overrides
   const filteredErrors = errors.filter(err => severityOverrides[err.errorType] !== 'off');
 
@@ -500,6 +546,12 @@ export function runDesignLint(
         case 'accessibility':
           err.severity = 'critical';
           break;
+        case 'visualQuality':
+          err.severity = 'warning';
+          break;
+        case 'microcopy':
+          err.severity = 'info';
+          break;
       }
     }
   }
@@ -508,7 +560,7 @@ export function runDesignLint(
   const nodesWithErrors = new Set(finalErrors.map(e => e.nodeId)).size;
 
   // Build summary
-  const byType: Record<LintErrorType, number> = { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0 };
+  const byType: Record<LintErrorType, number> = { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0 };
   for (const err of finalErrors) {
     byType[err.errorType]++;
   }
@@ -538,7 +590,7 @@ export function lintSelection(settings?: LintSettings): LintResult {
       errors: [],
       ignoredNodeIds: [],
       ignoredErrorKeys: [],
-      summary: { totalErrors: 0, byType: { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0 }, totalNodes: 0, nodesWithErrors: 0 },
+      summary: { totalErrors: 0, byType: { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0 }, totalNodes: 0, nodesWithErrors: 0 },
     };
   }
   return runDesignLint(selection, settings);

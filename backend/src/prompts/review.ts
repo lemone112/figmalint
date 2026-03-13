@@ -15,7 +15,7 @@ ${componentInfo}
 Lint results (for reference only — do not re-evaluate these):
 ${lintSummary}
 ${knowledgeBlock}
-Evaluate ONLY these 4 categories using the rubric below. Each category must have a rating (pass/needs_improvement/fail), 2-3 specific evidence items from the screenshot, and a recommendation (null if pass).
+Evaluate ONLY these 7 categories using the rubric below. Each category must have a rating (pass/needs_improvement/fail), 2-3 specific evidence items from the screenshot, and a recommendation (null if pass).
 
 ## Category 1: Visual Hierarchy
 PASS: Clear focal point, heading sizes distinctly larger than body (≥1.25x ratio), logical reading flow (F-pattern or Z-pattern)
@@ -38,6 +38,21 @@ PASS: Colors form a cohesive palette (complementary, analogous, or monochromatic
 NEEDS_IMPROVEMENT: Palette mostly cohesive but 1-2 colors feel disconnected; accent usage inconsistent
 FAIL: No discernible color scheme; colors clash; accent colors used arbitrarily
 
+## Category 5: Visual Balance
+PASS: Even distribution of visual weight; whitespace is intentional and creates breathing room; content density appropriate for context; elements feel balanced (not cramped or sparse)
+NEEDS_IMPROVEMENT: Generally balanced but 1-2 areas feel too dense or too empty; whitespace inconsistent
+FAIL: Layout feels lopsided; excessive whitespace in some areas and cramped in others; visual weight concentrated on one side
+
+## Category 6: Microcopy Quality
+PASS: CTAs are specific and action-oriented (verb + object); labels are clear; error messages explain what to do; no placeholder/lorem text; no "click here"
+NEEDS_IMPROVEMENT: Most copy is clear but 1-2 CTAs are vague ("Submit", "OK"); some labels could be clearer
+FAIL: Generic CTAs throughout; placeholder text visible; vague or missing labels; "click here" antipattern present
+
+## Category 7: Cognitive Load
+PASS: ≤5 primary actions visible; clear single path forward; information grouped logically; progressive disclosure for complex content
+NEEDS_IMPROVEMENT: 6-8 competing actions; path forward exists but is not immediately obvious; some information grouping unclear
+FAIL: >8 competing actions; no clear path forward; information scattered; user must think to determine next step
+
 Respond in this exact JSON format:
 {
   "visualHierarchy": {
@@ -58,6 +73,21 @@ Respond in this exact JSON format:
     "recommendation": "<actionable suggestion or null if pass>"
   },
   "colorHarmony": {
+    "rating": "pass|needs_improvement|fail",
+    "evidence": ["<observation 1>", "<observation 2>"],
+    "recommendation": "<actionable suggestion or null if pass>"
+  },
+  "visualBalance": {
+    "rating": "pass|needs_improvement|fail",
+    "evidence": ["<observation 1>", "<observation 2>"],
+    "recommendation": "<actionable suggestion or null if pass>"
+  },
+  "microcopyQuality": {
+    "rating": "pass|needs_improvement|fail",
+    "evidence": ["<observation 1>", "<observation 2>"],
+    "recommendation": "<actionable suggestion or null if pass>"
+  },
+  "cognitiveLoad": {
     "rating": "pass|needs_improvement|fail",
     "evidence": ["<observation 1>", "<observation 2>"],
     "recommendation": "<actionable suggestion or null if pass>"

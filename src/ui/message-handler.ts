@@ -32,6 +32,7 @@ import {
 } from '../fixes/naming-fixer';
 import { FixRequest, FixPreviewRequest, BatchFixRequest, LintSettings } from '../types';
 import { exportScreenshot } from '../extract/screenshot';
+import { buildFlowGraph, analyzeFlowGraph } from '../flow/graph-builder';
 import { fixSpacingToNearest, fixAllSpacingOnNode } from '../fix/fix-spacing';
 import { fixRadiusToNearest } from '../fix/fix-radius';
 import { renameLayerById } from '../fix/rename-layer';
@@ -197,6 +198,9 @@ export async function handleUIMessage(msg: PluginMessage): Promise<void> {
         break;
       case 'export-screenshot':
         await handleExportScreenshot(data);
+        break;
+      case 'analyze-flow':
+        await handleAnalyzeFlow();
         break;
       default:
         console.warn('Unknown message type:', type);
@@ -1323,6 +1327,84 @@ function handleRescanLint(): void {
     totalErrors: result.summary.totalErrors,
     nodesWithErrors: result.summary.nodesWithErrors,
   });
+}
+
+/**
+ * Analyze the current page as a user flow.
+ * Builds navigation graph from prototype reactions,
+ * captures per-frame screenshots + lint, and sends to UI.
+ */
+async function handleAnalyzeFlow(): Promise<void> {
+  try {
+    sendMessageToUI('flow-analysis-started', { status: 'building-graph' });
+
+    // 1. Build the flow graph
+    const graph = buildFlowGraph();
+
+    if (graph.frames.length === 0) {
+      sendMessageToUI('flow-analysis-error', { error: 'No top-level frames found on current page.' });
+      return;
+    }
+
+    if (graph.frames.length > 50) {
+      sendMessageToUI('flow-analysis-error', { error: `Too many frames (${graph.frames.length}). Select a page with ≤50 frames for flow analysis.` });
+      return;
+    }
+
+    // 2. Deterministic graph issues
+    const graphIssues = analyzeFlowGraph(graph);
+
+    sendMessageToUI('flow-analysis-started', { status: 'capturing-screenshots', total: graph.frames.length });
+
+    // 3. Capture screenshots + lint per frame (in batches of 10)
+    const screenshots: Record<string, string> = {};
+    const lintResults: Record<string, any> = {};
+    const BATCH_SIZE = 10;
+
+    for (let i = 0; i < graph.frames.length; i += BATCH_SIZE) {
+      const batch = graph.frames.slice(i, i + BATCH_SIZE);
+      const promises = batch.map(async (frame) => {
+        const node = await figma.getNodeByIdAsync(frame.id);
+        if (!node || !('exportAsync' in node)) return;
+
+        // Screenshot
+        try {
+          const screenshot = await exportScreenshot(node as SceneNode);
+          screenshots[frame.id] = screenshot;
+        } catch {
+          // Non-critical — skip screenshot
+        }
+
+        // Lint
+        try {
+          const { runDesignLint } = await import('../core/design-lint');
+          const result = runDesignLint([node as SceneNode], currentLintSettings);
+          lintResults[frame.id] = result;
+        } catch {
+          // Non-critical
+        }
+      });
+      await Promise.all(promises);
+
+      sendMessageToUI('flow-analysis-started', {
+        status: 'capturing-screenshots',
+        progress: Math.min(i + BATCH_SIZE, graph.frames.length),
+        total: graph.frames.length,
+      });
+    }
+
+    // 4. Send results to UI
+    sendMessageToUI('flow-analysis-result', {
+      graph,
+      graphIssues,
+      screenshots,
+      lintResults,
+    });
+
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('flow-analysis-error', { error: msg });
+  }
 }
 
 /**

@@ -7,6 +7,7 @@ import analyze from './routes/analyze.js';
 import chat from './routes/chat.js';
 import stream from './routes/stream.js';
 import session from './routes/session.js';
+import flow from './routes/flow.js';
 import { mkdirSync, existsSync } from 'fs';
 import { dirname } from 'path';
 
@@ -41,6 +42,7 @@ app.route('/api', analyze);
 app.route('/api', chat);
 app.route('/api', stream);
 app.route('/api', session);
+app.route('/api', flow);
 
 // Root
 app.get('/', (c) => c.json({ name: 'FigmaLint Design Review API', version: '1.0.0' }));

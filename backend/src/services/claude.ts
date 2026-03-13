@@ -54,6 +54,9 @@ interface AiReviewResult {
   statesCoverage: AiReviewCategory & { missingStates: string[] };
   platformAlignment: AiReviewCategory & { detectedPlatform: string };
   colorHarmony: AiReviewCategory;
+  visualBalance: AiReviewCategory;
+  microcopyQuality: AiReviewCategory;
+  cognitiveLoad: AiReviewCategory;
   recommendations: Array<{ title: string; description: string; severity: string }>;
   summary: string;
 }
@@ -82,7 +85,7 @@ export async function generateReview(
 
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 2000,
+    max_tokens: 3000,
     system: SYSTEM_PROMPT,
     messages: [
       {
@@ -128,6 +131,9 @@ export async function generateReview(
         : 'web',
     },
     colorHarmony: normalizeCategory(parsed.colorHarmony),
+    visualBalance: normalizeCategory(parsed.visualBalance),
+    microcopyQuality: normalizeCategory(parsed.microcopyQuality),
+    cognitiveLoad: normalizeCategory(parsed.cognitiveLoad),
     recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
     summary: typeof parsed.summary === 'string' ? parsed.summary : '',
   };

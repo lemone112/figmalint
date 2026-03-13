@@ -219,7 +219,8 @@ export type UIMessageType =
   | 'fix-radius-to-nearest'
   | 'batch-fix-v2'
   | 'rescan-lint'
-  | 'export-screenshot';
+  | 'export-screenshot'
+  | 'analyze-flow';
 
 // Auto-fix Types
 export interface FixRequest {
@@ -371,7 +372,7 @@ export type TokenCategory = 'colors' | 'spacing' | 'typography' | 'effects' | 'b
 // Design Lint Types (deterministic, non-AI rules)
 // ──────────────────────────────────────────────
 
-export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility';
+export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy';
 
 export interface LintError {
   nodeId: string;
@@ -410,6 +411,8 @@ export interface LintSettings {
   checkSpacing: boolean;
   checkAutoLayout: boolean;
   checkAccessibility: boolean;
+  checkVisualQuality: boolean;
+  checkMicrocopy: boolean;
   allowedRadii: number[];
   skipLockedLayers: boolean;
   skipHiddenLayers: boolean;

@@ -59,6 +59,9 @@ export interface AiReviewResult {
   statesCoverage: AiReviewCategory & { missingStates: string[] };
   platformAlignment: AiReviewCategory & { detectedPlatform: string };
   colorHarmony: AiReviewCategory;
+  visualBalance: AiReviewCategory;
+  microcopyQuality: AiReviewCategory;
+  cognitiveLoad: AiReviewCategory;
   recommendations: Array<{ title: string; description: string; severity: string }>;
   summary: string;
 }
@@ -94,7 +97,7 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
 
   // Build lint summary text — safely access byType keys with fallback to 0
   const bt = req.lintResult.summary.byType || {};
-  const lintSummary = `${req.lintResult.summary.totalErrors} issues: ${bt.fill ?? 0} fills, ${bt.stroke ?? 0} strokes, ${bt.effect ?? 0} effects, ${bt.text ?? 0} text, ${bt.radius ?? 0} radius, ${bt.spacing ?? 0} spacing, ${bt.autoLayout ?? 0} auto-layout`;
+  const lintSummary = `${req.lintResult.summary.totalErrors} issues: ${bt.fill ?? 0} fills, ${bt.stroke ?? 0} strokes, ${bt.effect ?? 0} effects, ${bt.text ?? 0} text, ${bt.radius ?? 0} radius, ${bt.spacing ?? 0} spacing, ${bt.autoLayout ?? 0} auto-layout, ${bt.visualQuality ?? 0} visual quality, ${bt.microcopy ?? 0} microcopy`;
 
   // Build component info
   const meta = req.extractedData.metadata;
@@ -135,6 +138,9 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
         statesCoverage: { ...defaultCategory, missingStates: [] },
         platformAlignment: { ...defaultCategory, detectedPlatform: 'unknown' },
         colorHarmony: { ...defaultCategory },
+        visualBalance: { ...defaultCategory },
+        microcopyQuality: { ...defaultCategory },
+        cognitiveLoad: { ...defaultCategory },
         recommendations: [],
         summary: 'AI review was unavailable for this analysis.',
       };
@@ -161,7 +167,7 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
   }
 
   // Compute Design Health Score — severity-weighted, no AI component
-  // Matches frontend formula: Tokens 30%, Spacing 20%, Layout 10%, A11y 30%, Naming 10%
+  // Weights: Tokens 25%, A11y 25%, Spacing 15%, Visual 10%, Microcopy 10%, Layout 10%, Naming 5%
   const SEVERITY_WEIGHT: Record<string, number> = { critical: 10, warning: 3, info: 1 };
   const errors = req.lintResult.errors;
   const total = Math.max(req.lintResult.summary.totalNodes, 1);
@@ -184,13 +190,17 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
   const namingErrors = errors.filter(e =>
     (e.errorType === 'accessibility' && GENERIC_NAME_RE.test(e.nodeName)) || e.errorType === 'radius'
   );
+  const visualQualityErrors = errors.filter(e => e.errorType === 'visualQuality');
+  const microcopyErrors = errors.filter(e => e.errorType === 'microcopy');
 
   const designHealthScore = Math.round(
-    severityScore(tokenErrors, total * 4) * 0.30 +
-    severityScore(spacingErrors, total) * 0.20 +
+    severityScore(tokenErrors, total * 4) * 0.25 +
+    severityScore(a11yErrors, total) * 0.25 +
+    severityScore(spacingErrors, total) * 0.15 +
+    severityScore(visualQualityErrors, total) * 0.10 +
+    severityScore(microcopyErrors, total) * 0.10 +
     severityScore(layoutErrors, total) * 0.10 +
-    severityScore(a11yErrors, total) * 0.30 +
-    severityScore(namingErrors, total) * 0.10
+    severityScore(namingErrors, total) * 0.05
   );
 
   // Save to session
