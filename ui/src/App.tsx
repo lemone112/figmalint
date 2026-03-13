@@ -7,6 +7,8 @@ import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
 import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData, PageSweepData, PageSweepRawData, MiniScoreData } from './lib/messages';
 import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow, analyzePageSweep, analyzeBrandConsistency, analyzeCopyTone, analyzePersonaResearch, generateA11ySpec } from './lib/api';
 
+const isDev = import.meta.env.DEV;
+
 export default function App() {
   const chat = useChat();
   const post = usePostToPlugin();
@@ -426,6 +428,36 @@ export default function App() {
     post('check-api-key');
     checkHealth().then(ok => setBackendAvailable(ok));
   }, [post]);
+
+  // Dev-mode: populate chat with mock messages to showcase UI components
+  useEffect(() => {
+    if (!isDev) return;
+
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    import('./lib/dev-mock').then(({ DEV_MOCK_STEPS }) => {
+      if (cancelled) return;
+      for (const step of DEV_MOCK_STEPS) {
+        timers.push(
+          setTimeout(() => {
+            if (cancelled) return;
+            // Streaming message: start the typing indicator via appendStreamChunk
+            if (step.msg.kind === 'ai-text' && step.msg.streaming) {
+              chat.appendStreamChunk('');
+            } else {
+              chat.addMessage(step.msg);
+            }
+          }, step.delay)
+        );
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount in dev
 
   const handleAnalyze = useCallback(() => {
     // Abort any in-flight streaming chat
