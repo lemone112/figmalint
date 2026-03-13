@@ -96,7 +96,7 @@ app.route('/api', darkMode);
 app.route('/api', pageSweep);
 
 // Root
-app.get('/', (c) => c.json({ name: 'FigmaLint Design Review API', version: '1.0.0' }));
+app.get('/', (c) => c.json({ name: 'Bezier Design Review API', version: '1.0.0' }));
 
 const port = parseInt(process.env.PORT || '3000', 10);
 
@@ -112,6 +112,6 @@ setInterval(() => {
   } catch { /* ignore */ }
 }, 6 * 60 * 60 * 1000).unref();
 
-console.log(`Starting FigmaLint backend on port ${port}...`);
+console.log(`Starting Bezier backend on port ${port}...`);
 serve({ fetch: app.fetch, port });
 console.log(`Server running at http://localhost:${port}`);

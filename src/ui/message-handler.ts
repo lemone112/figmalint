@@ -2415,7 +2415,7 @@ async function handleAddComponentProperty(data: {
       const stagingY = absY + containerNode.height + 50;
 
       const section = figma.createSection();
-      section.name = `FigmaLint: ${propertyName} Variants`;
+      section.name = `Bezier: ${propertyName} Variants`;
       page.appendChild(section);
       section.x = stagingX;
       section.y = stagingY;

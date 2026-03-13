@@ -42,7 +42,7 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             </svg>
           </div>
           <div>
-            <p className="text-13 font-medium text-fg mb-1">FigmaLint</p>
+            <p className="text-13 font-medium text-fg mb-1">Bezier</p>
             <p className="text-11 text-fg-secondary">AI-powered design quality review</p>
           </div>
           <div className="text-left space-y-2">

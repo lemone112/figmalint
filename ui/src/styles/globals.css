@@ -2,27 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --figma-color-bg: #ffffff;
-  --figma-color-bg-secondary: #f5f5f5;
-  --figma-color-bg-tertiary: #e6e6e6;
-  --figma-color-bg-brand: #0d99ff;
-  --figma-color-bg-hover: rgba(0, 0, 0, 0.06);
-  --figma-color-bg-selected: #daebf7;
-  --figma-color-bg-danger: #fce4e0;
-  --figma-color-bg-warning: #fff3e0;
-  --figma-color-bg-success: #e4f7ec;
-  --figma-color-text: #333333;
-  --figma-color-text-secondary: #666666;
-  --figma-color-text-tertiary: #999999;
-  --figma-color-text-disabled: #b3b3b3;
-  --figma-color-text-onbrand: #ffffff;
-  --figma-color-text-danger: #f24822;
-  --figma-color-text-warning-secondary: #b35e00;
-  --figma-color-text-success: #14ae5c;
-  --figma-color-border: #e6e6e6;
-  --figma-color-border-strong: #c4c4c4;
-  --figma-color-icon: #b3b3b3;
+@layer base {
+  :root {
+    /* ── Figma runtime tokens (injected by Figma, fallbacks for dev) ── */
+    --figma-color-bg: #ffffff;
+    --figma-color-bg-secondary: #f5f5f5;
+    --figma-color-bg-tertiary: #e6e6e6;
+    --figma-color-bg-brand: #0d99ff;
+    --figma-color-bg-hover: rgba(0, 0, 0, 0.06);
+    --figma-color-bg-selected: #daebf7;
+    --figma-color-bg-danger: #fce4e0;
+    --figma-color-bg-warning: #fff3e0;
+    --figma-color-bg-success: #e4f7ec;
+    --figma-color-text: #333333;
+    --figma-color-text-secondary: #666666;
+    --figma-color-text-tertiary: #999999;
+    --figma-color-text-disabled: #b3b3b3;
+    --figma-color-text-onbrand: #ffffff;
+    --figma-color-text-danger: #f24822;
+    --figma-color-text-warning-secondary: #b35e00;
+    --figma-color-text-success: #14ae5c;
+    --figma-color-border: #e6e6e6;
+    --figma-color-border-strong: #c4c4c4;
+    --figma-color-icon: #b3b3b3;
+
+    /* ── shadcn variables → Figma aliases ── */
+    --background: var(--figma-color-bg, #ffffff);
+    --foreground: var(--figma-color-text, #333333);
+    --card: var(--figma-color-bg, #ffffff);
+    --card-foreground: var(--figma-color-text, #333333);
+    --popover: var(--figma-color-bg, #ffffff);
+    --popover-foreground: var(--figma-color-text, #333333);
+    --primary: var(--figma-color-bg-brand, #0d99ff);
+    --primary-foreground: var(--figma-color-text-onbrand, #ffffff);
+    --secondary: var(--figma-color-bg-secondary, #f5f5f5);
+    --secondary-foreground: var(--figma-color-text, #333333);
+    --muted: var(--figma-color-bg-tertiary, #e6e6e6);
+    --muted-foreground: var(--figma-color-text-secondary, #666666);
+    --accent: var(--figma-color-bg-hover, rgba(0,0,0,0.06));
+    --accent-foreground: var(--figma-color-text, #333333);
+    --destructive: var(--figma-color-text-danger, #f24822);
+    --border: var(--figma-color-border, #e6e6e6);
+    --input: var(--figma-color-border, #e6e6e6);
+    --ring: var(--figma-color-bg-brand, #0d99ff);
+    --radius: 0.5rem;
+  }
 }
 
 * {

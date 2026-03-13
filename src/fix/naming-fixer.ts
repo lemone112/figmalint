@@ -2,7 +2,7 @@
 
 // =============================================================================
 // NAMING FIXER MODULE
-// Layer naming auto-fix functionality for FigmaLint plugin
+// Layer naming auto-fix functionality for Bezier plugin
 // =============================================================================
 
 // -----------------------------------------------------------------------------

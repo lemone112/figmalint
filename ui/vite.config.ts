@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { renameSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import path from 'path';
 
 /** Rename the output index.html → ui.html after build */
 function renameOutput(): Plugin {
@@ -21,6 +22,11 @@ function renameOutput(): Plugin {
 
 export default defineConfig({
   plugins: [react(), viteSingleFile(), renameOutput()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   build: {
     outDir: '../dist',
     emptyOutDir: false,

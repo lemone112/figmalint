@@ -35,7 +35,7 @@ export function buildFollowupPrompt(
     }
   }
 
-  return `You are a senior design review assistant embedded in FigmaLint, a Figma plugin that analyzes design quality. You are in a follow-up conversation after an initial analysis has been completed.
+  return `You are a senior design review assistant embedded in Bezier, a Figma plugin that analyzes design quality. You are in a follow-up conversation after an initial analysis has been completed.
 
 ## Current Analysis Context
 ${sessionContext}${topIssuesSummary}
