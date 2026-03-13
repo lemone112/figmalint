@@ -372,7 +372,7 @@ export type TokenCategory = 'colors' | 'spacing' | 'typography' | 'effects' | 'b
 // Design Lint Types (deterministic, non-AI rules)
 // ──────────────────────────────────────────────
 
-export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy';
+export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy' | 'conversion' | 'cognitive';
 
 export interface LintError {
   nodeId: string;
@@ -413,6 +413,8 @@ export interface LintSettings {
   checkAccessibility: boolean;
   checkVisualQuality: boolean;
   checkMicrocopy: boolean;
+  checkConversion: boolean;
+  checkCognitive: boolean;
   allowedRadii: number[];
   skipLockedLayers: boolean;
   skipHiddenLayers: boolean;
