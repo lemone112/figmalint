@@ -1,16 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from '../prompts/system.js';
 import { buildFlowAnalysisPrompt } from '../prompts/flow-analysis.js';
-
-let anthropicClient: Anthropic | null = null;
-function getClient(): Anthropic {
-  if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  }
-  return anthropicClient;
-}
-
-const MODEL = 'claude-sonnet-4-20250514';
+import { getAnthropicClient, MODEL } from './claude.js';
 
 // ── Types ──────────────────────────────────────
 
@@ -108,7 +99,7 @@ function buildGraphDescription(frames: FlowFrame[], edges: FlowEdge[]): string {
  * Sends all screenshots + graph context to Claude for holistic analysis.
  */
 export async function analyzeFlow(req: FlowAnalyzeRequest): Promise<FlowAnalysisResult | null> {
-  const client = getClient();
+  const client = getAnthropicClient();
 
   if (!process.env.ANTHROPIC_API_KEY) return null;
 

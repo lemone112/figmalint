@@ -203,7 +203,7 @@ export type PluginEvent =
   | { type: 'api-key-saved'; data: { success: boolean } }
   | { type: 'screenshot-result'; data: { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number } }
   | { type: 'selection-changed'; data: { hasSelection: boolean; nodeId: string | null; nodeName: string | null } }
-  | { type: string; data: unknown };
+  | { type: 'screenshot-error'; data: { error: string } };
 
 // UI → Plugin message commands
 export function postToPlugin(type: string, data?: unknown): void {

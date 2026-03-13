@@ -86,7 +86,8 @@ const consistencyEngine = new ComponentConsistencyEngine({
  */
 export async function handleUIMessage(msg: PluginMessage): Promise<void> {
   const { type, data } = msg;
-  console.log('Received message:', type, data);
+  const logData = type === 'save-api-key' ? { ...data, apiKey: '***' } : data;
+  console.log('Received message:', type, logData);
 
   try {
     switch (type as UIMessageType) {

@@ -231,44 +231,47 @@ export function useChat() {
 
   const handleRescan = useCallback((result: LintResult) => {
     const newScore = computeScoreBreakdown(result);
-    const oldOverall = state.score?.overall || 0;
 
-    const messages: ChatMessage[] = [];
+    setState(prev => {
+      const oldOverall = prev.score?.overall || 0;
 
-    if (result.summary.totalErrors === 0) {
-      messages.push(createMessage({
-        kind: 'ai-text',
-        content: 'All issues resolved! Component is clean.',
-      }));
-    } else {
-      messages.push(createMessage({
-        kind: 'score-update',
-        data: {
-          oldScore: oldOverall,
-          newScore: newScore.overall,
-          issuesRemaining: result.summary.totalErrors,
-        },
-      }));
-    }
+      const msgs: ChatMessage[] = [];
 
-    messages.push(createMessage({ kind: 'score-card', data: newScore }));
+      if (result.summary.totalErrors === 0) {
+        msgs.push(createMessage({
+          kind: 'ai-text',
+          content: 'All issues resolved! Component is clean.',
+        }));
+      } else {
+        msgs.push(createMessage({
+          kind: 'score-update',
+          data: {
+            oldScore: oldOverall,
+            newScore: newScore.overall,
+            issuesRemaining: result.summary.totalErrors,
+          },
+        }));
+      }
 
-    if (result.errors.length > 0) {
-      const fixableCount = result.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length;
-      messages.push(createMessage({
-        kind: 'issues-list',
-        data: result.errors,
-        fixableCount,
-      }));
-    }
+      msgs.push(createMessage({ kind: 'score-card', data: newScore }));
 
-    setState(prev => ({
-      ...prev,
-      lintResult: result,
-      score: newScore,
-      messages: [...prev.messages, ...messages],
-    }));
-  }, [state.score]);
+      if (result.errors.length > 0) {
+        const fixableCount = result.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length;
+        msgs.push(createMessage({
+          kind: 'issues-list',
+          data: result.errors,
+          fixableCount,
+        }));
+      }
+
+      return {
+        ...prev,
+        lintResult: result,
+        score: newScore,
+        messages: [...prev.messages, ...msgs],
+      };
+    });
+  }, []);
 
   const handleAiReview = useCallback((data: {
     sessionId: string;

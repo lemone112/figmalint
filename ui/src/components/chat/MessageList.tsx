@@ -26,7 +26,7 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
       <div className="flex-1 flex items-center justify-center px-6">
         <div className="text-center space-y-4 max-w-[280px]">
           <div className="text-[40px] mb-1">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto text-fg-tertiary">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto text-fg-tertiary" aria-hidden="true">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
           </div>
@@ -80,7 +80,7 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             return (
               <div key={msg.id} className="bg-bg-success rounded-xl px-3 py-2 text-12">
                 <div className="flex items-center gap-1.5">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-fg-success shrink-0">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-fg-success shrink-0" aria-hidden="true">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   <span>

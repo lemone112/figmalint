@@ -47,8 +47,9 @@ export default function SettingsPanel({
         <button
           onClick={onClose}
           className="w-6 h-6 flex items-center justify-center text-fg-tertiary hover:text-fg rounded-md hover:bg-bg-hover transition-colors"
+          aria-label="Close settings"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -97,6 +98,7 @@ export default function SettingsPanel({
                 placeholder={PROVIDERS.find(p => p.id === provider)?.placeholder}
                 className="w-full px-2 py-1.5 text-12 bg-bg-secondary border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-fg-brand"
                 onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
+                aria-label="API key"
               />
               <button
                 onClick={handleSave}

@@ -142,6 +142,11 @@ export default function App() {
             break;
           case 'batch-fix-v2-result':
             chat.handleBatchFixResult(event.data as any);
+            // Auto-rescan after batch fixes to show updated score
+            setTimeout(() => {
+              chat.addMessage({ kind: 'ai-text', content: 'Re-scanning to verify fixes...' });
+              post('rescan-lint');
+            }, 500);
             break;
           case 'rescan-complete':
             // Rescan lint result will arrive via 'design-lint-result' — handled there
@@ -185,6 +190,16 @@ export default function App() {
       [chat, post, tryBackendAnalysis]
     )
   );
+
+  // Clean up Refero polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (referoPollingRef.current) {
+        clearInterval(referoPollingRef.current);
+        referoPollingRef.current = null;
+      }
+    };
+  }, []);
 
   // Check API key and backend health on mount
   useEffect(() => {
@@ -434,7 +449,7 @@ export default function App() {
             className="shrink-0 w-8 h-8 flex items-center justify-center text-fg-tertiary hover:text-fg rounded-md hover:bg-bg-hover transition-colors"
             title="Settings"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>

@@ -123,7 +123,7 @@ src/
 └── utils/
     └── figma-helpers.ts         # Figma API utilities
 
-ui-enhanced.html                 # Plugin interface (single-file HTML/CSS/JS)
+ui/                              # Plugin interface source files
 ```
 
 ## Development

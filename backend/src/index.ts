@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import { bodyLimit } from 'hono/body-limit';
 import { serve } from '@hono/node-server';
 import health from './routes/health.js';
 import analyze from './routes/analyze.js';
@@ -18,18 +19,28 @@ if (!existsSync(dbDir)) {
   mkdirSync(dbDir, { recursive: true });
 }
 
+// Validate required env vars at startup
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn('[WARN] ANTHROPIC_API_KEY is not set. AI-powered analysis will be unavailable (lint-only mode).');
+}
+
 const app = new Hono();
 
 // Middleware
 app.use('*', logger());
+
+// Body size limit — base64 screenshots can be large but must be capped to prevent OOM
+app.use('/api/*', bodyLimit({ maxSize: 25 * 1024 * 1024 }));
 app.use(
   '*',
   cors({
     // Figma plugin iframes send origin: null; also allow the plugin's backend domain
     origin: (origin) => {
-      if (!origin || origin === 'null') return 'null'; // Figma sandboxed iframe
+      // Figma plugin iframes send null origin — allow it
+      if (!origin || origin === 'null') return 'null';
       const allowed = ['https://api.figmalint.labpics.com', 'http://localhost:3000'];
-      return allowed.includes(origin) ? origin : 'null';
+      // Return the origin if allowed; empty string tells Hono to omit the header
+      return allowed.includes(origin) ? origin : '';
     },
     allowMethods: ['GET', 'POST', 'OPTIONS'],
     allowHeaders: ['Content-Type'],

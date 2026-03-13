@@ -23,8 +23,7 @@ app.post('/analyze-flow', async (c) => {
     return c.json({ success: true, flowAnalysis: result });
   } catch (error) {
     console.error('Flow analysis error:', error);
-    const message = error instanceof Error ? error.message : 'Flow analysis failed';
-    return c.json({ error: message }, 500);
+    return c.json({ error: 'Flow analysis failed. Please try again.' }, 500);
   }
 });
 

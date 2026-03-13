@@ -1,17 +1,8 @@
 import { fetchDesignSystemContext, type SourceReference } from './design-knowledge.js';
 import { buildDesignKnowledgeSection } from '../prompts/design-knowledge.js';
-import { detectPageType, generateReview } from './claude.js';
+import { detectPageType, generateReview, getAnthropicClient } from './claude.js';
 import { runReferoComparison, type ReferoComparison } from './refero.js';
 import { startSession, loadSession, saveAnalysisResult, saveReferoResult } from './session.js';
-import Anthropic from '@anthropic-ai/sdk';
-
-let anthropicClient: Anthropic | null = null;
-function getAnthropicClient(): Anthropic {
-  if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  }
-  return anthropicClient;
-}
 
 export interface AnalyzeRequest {
   screenshot: string;
@@ -42,6 +33,12 @@ export interface AnalyzeRequest {
       height: number;
       hasAutoLayout: boolean;
       childCount: number;
+    };
+    tokenSummary?: {
+      totalTokens: number;
+      boundToVariables: number;
+      boundToStyles: number;
+      hardCoded: number;
     };
   };
   sessionId?: string;

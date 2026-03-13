@@ -7997,7 +7997,8 @@ ${scoringCriteria}
   });
   async function handleUIMessage(msg) {
     const { type, data } = msg;
-    console.log("Received message:", type, data);
+    const logData = type === "save-api-key" ? __spreadProps(__spreadValues({}, data), { apiKey: "***" }) : data;
+    console.log("Received message:", type, logData);
     try {
       switch (type) {
         case "check-api-key":

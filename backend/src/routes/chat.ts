@@ -32,9 +32,9 @@ app.post('/chat', async (c) => {
     // Get conversation history and build context
     const history = getConversation(body.sessionId);
     const sessionContext = getSessionContext(body.sessionId);
-    // buildFollowupPrompt already embeds session context;
-    // pass only history as messages to avoid duplication
-    const systemPrompt = buildFollowupPrompt(sessionContext, history);
+    // System prompt carries only instructions + session context;
+    // conversation history is passed separately via the messages array
+    const systemPrompt = buildFollowupPrompt(sessionContext);
 
     // Build messages for API — only include recent history to avoid context bloat
     const messages: Array<{ role: 'user' | 'assistant'; content: string }> = history.map(m => ({
@@ -56,8 +56,7 @@ app.post('/chat', async (c) => {
     return c.json({ message: response, sessionId: body.sessionId });
   } catch (error) {
     console.error('Chat error:', error);
-    const message = error instanceof Error ? error.message : 'Chat failed';
-    return c.json({ error: message }, 500);
+    return c.json({ error: 'Chat request failed. Please try again.' }, 500);
   }
 });
 
