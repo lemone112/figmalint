@@ -102,10 +102,17 @@ app.post('/brand-consistency', async (c) => {
       );
     }
 
-    // Validate brandGuide.personality — default to generic traits if omitted/empty
-    if (!Array.isArray(bg.personality) || bg.personality.length === 0) {
-      bg.personality = ['professional', 'clear', 'consistent'];
-    }
+    // Normalize brandGuide.personality — default to generic traits if omitted/invalid/empty
+    const normalizedPersonality = Array.isArray(bg.personality)
+      ? bg.personality.filter(
+          (trait): trait is string =>
+            typeof trait === 'string' && trait.trim().length > 0,
+        )
+      : [];
+    bg.personality =
+      normalizedPersonality.length > 0
+        ? normalizedPersonality
+        : ['professional', 'clear', 'consistent'];
 
     if (!process.env.ANTHROPIC_API_KEY) {
       return c.json(

@@ -27,7 +27,7 @@ export default function App() {
   const referoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingLintResult = useRef<LintResult | null>(null);
   const pendingScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number } | null>(null);
-  const lastScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number; textContent?: string[] } | null>(null);
+  const lastScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number; textContent?: string[] } | null>(null);
   const pageSweepRequestId = useRef(0);
 
   // Try to send lint + screenshot to backend for AI analysis
@@ -765,20 +765,26 @@ export default function App() {
             chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
             break;
           }
+          if (selectionStale) {
+            chat.addMessage({ kind: 'ai-text', content: 'Selection has changed since last analysis. Re-scan first.' });
+            break;
+          }
           chat.addMessage({ kind: 'ai-text', content: 'Running brand consistency analysis...' });
           setIsActionLoading(true);
           const brandSs = lastScreenshot.current;
+          const tc = teamConfig as Record<string, any> | undefined;
+          const brandGuide = {
+            colors: tc?.brandGuide?.colors ?? {},
+            typography: tc?.brandGuide?.typography ?? {
+              heading: { family: '', weights: [] },
+              body: { family: '', weights: [] },
+            },
+            spacing: tc?.brandGuide?.spacing ?? { base: 8, scale: [4, 8, 12, 16, 24, 32, 48, 64] },
+            personality: tc?.brandGuide?.personality ?? ['professional', 'clear', 'consistent'],
+          };
           analyzeBrandConsistency({
             screenshot: brandSs.screenshot,
-            brandGuide: {
-              colors: {},
-              typography: {
-                heading: { family: '', weights: [] },
-                body: { family: '', weights: [] },
-              },
-              spacing: { base: 8, scale: [4, 8, 12, 16, 24, 32, 48, 64] },
-              personality: [],
-            },
+            brandGuide,
             lintResult: chat.lintResult ?? undefined,
             sessionId: chat.sessionId || undefined,
           }).then((result) => {
@@ -799,6 +805,10 @@ export default function App() {
           }
           if (!lastScreenshot.current) {
             chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
+            break;
+          }
+          if (selectionStale) {
+            chat.addMessage({ kind: 'ai-text', content: 'Selection has changed since last analysis. Re-scan first.' });
             break;
           }
           const textContent = lastScreenshot.current.textContent ?? [];
@@ -831,6 +841,10 @@ export default function App() {
             chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
             break;
           }
+          if (selectionStale) {
+            chat.addMessage({ kind: 'ai-text', content: 'Selection has changed since last analysis. Re-scan first.' });
+            break;
+          }
           chat.addMessage({ kind: 'ai-text', content: 'Running persona-based usability simulation...' });
           setIsActionLoading(true);
           analyzePersonaResearch({
@@ -857,6 +871,10 @@ export default function App() {
             chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
             break;
           }
+          if (selectionStale) {
+            chat.addMessage({ kind: 'ai-text', content: 'Selection has changed since last analysis. Re-scan first.' });
+            break;
+          }
           if (!chat.lintResult) {
             chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to generate lint results.' });
             break;
@@ -874,8 +892,8 @@ export default function App() {
                 nodeType: 'FRAME',
                 width: a11ySs.width,
                 height: a11ySs.height,
-                hasAutoLayout: false,
-                childCount: 0,
+                hasAutoLayout: a11ySs.hasAutoLayout ?? false,
+                childCount: a11ySs.childCount ?? 0,
               },
             },
             lintResult: {
@@ -901,7 +919,7 @@ export default function App() {
         }
       }
     },
-    [chat, post, componentName, analysisMode, backendAvailable]
+    [chat, post, componentName, analysisMode, backendAvailable, selectionStale, teamConfig]
   );
 
   const handleJumpToNode = useCallback(

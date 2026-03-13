@@ -22,7 +22,11 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
         </div>
       )}
       {/* Primary row */}
-      <div className={`flex items-center gap-1.5 px-3 py-1 overflow-x-auto ${isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
+      <fieldset
+        disabled={isLoading}
+        aria-busy={isLoading}
+        className={`min-w-0 m-0 border-0 p-0 flex items-center gap-1.5 px-3 py-1 overflow-x-auto ${isLoading ? 'opacity-50' : ''}`}
+      >
         {hasFixable && (
           <button
             className="shrink-0 px-2 py-1 text-11 bg-bg-brand text-fg-onbrand rounded-md hover:opacity-90 transition-opacity"
@@ -89,11 +93,15 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
         >
           {showMore ? 'Less' : 'More...'}
         </button>
-      </div>
+      </fieldset>
 
       {/* Secondary row — advanced actions */}
       {showMore && (
-        <div className={`flex items-center gap-1.5 px-3 py-1 overflow-x-auto border-t border-border/50 ${isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
+        <fieldset
+          disabled={isLoading}
+          aria-busy={isLoading}
+          className={`min-w-0 m-0 border-0 p-0 flex items-center gap-1.5 px-3 py-1 overflow-x-auto border-t border-border/50 ${isLoading ? 'opacity-50' : ''}`}
+        >
           <button
             className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
             onClick={() => onAction('design-debt')}
@@ -143,7 +151,7 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
           >
             A11y Spec
           </button>
-        </div>
+        </fieldset>
       )}
     </div>
   );

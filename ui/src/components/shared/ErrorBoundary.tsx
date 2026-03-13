@@ -8,15 +8,18 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
+  retryCount: number;
 }
 
 export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  static MAX_RETRIES = 3;
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, retryCount: 0 };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
   }
 
@@ -25,11 +28,17 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   }
 
   handleRetry = (): void => {
-    this.setState({ hasError: false, error: null });
+    this.setState((prev) => ({
+      hasError: false,
+      error: null,
+      retryCount: prev.retryCount + 1,
+    }));
   };
 
   render(): ReactNode {
     if (this.state.hasError) {
+      const canRetry = this.state.retryCount < ErrorBoundary.MAX_RETRIES;
+
       return (
         <div className="h-full flex items-center justify-center px-6">
           <div className="max-w-[280px] text-center space-y-3">
@@ -52,7 +61,9 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
             <div>
               <p className="text-13 font-medium text-fg">Something went wrong</p>
               <p className="text-11 text-fg-secondary mt-1">
-                An unexpected error occurred. Try again or reload the plugin.
+                {canRetry
+                  ? 'An unexpected error occurred. Try again or reload the plugin.'
+                  : 'This error keeps happening. Please reload the plugin.'}
               </p>
             </div>
             {this.state.error && (
@@ -60,12 +71,21 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
                 {this.state.error.message}
               </p>
             )}
-            <button
-              className="px-4 py-2 bg-bg-brand text-fg-onbrand text-12 font-medium rounded-xl hover:opacity-90 transition-opacity"
-              onClick={this.handleRetry}
-            >
-              Retry
-            </button>
+            {canRetry ? (
+              <button
+                className="px-4 py-2 bg-bg-brand text-fg-onbrand text-12 font-medium rounded-xl hover:opacity-90 transition-opacity"
+                onClick={this.handleRetry}
+              >
+                Retry
+              </button>
+            ) : (
+              <button
+                className="px-4 py-2 bg-bg-secondary text-fg-secondary text-12 font-medium rounded-xl hover:opacity-90 transition-opacity"
+                onClick={() => window.location.reload()}
+              >
+                Reload Plugin
+              </button>
+            )}
           </div>
         </div>
       );

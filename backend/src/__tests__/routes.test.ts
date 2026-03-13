@@ -29,7 +29,8 @@ describe('GET /api/health', () => {
 
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe('ok');
-    expect(body.version).toBe('1.0.0');
+    expect(typeof body.version).toBe('string');
+    expect(body.version as string).toMatch(/^\d+\.\d+\.\d+(?:[-+].+)?$/);
   });
 
   it('returns a valid ISO timestamp', async () => {

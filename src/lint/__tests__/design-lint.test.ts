@@ -345,21 +345,23 @@ describe('runDesignLint', () => {
     expect(textErrors.length).toBe(0);
   });
 
-  it('skips GROUP, SLICE, and COMPONENT_SET nodes in lintNode', () => {
-    // GROUP nodes should be traversed for children but not lint-checked themselves
-    const group: any = {
-      id: nextNodeId(),
-      name: 'Group',
-      type: 'GROUP',
-      visible: true,
-      locked: false,
-      children: [],
-    };
+  it.each(['GROUP', 'SLICE', 'COMPONENT_SET'] as const)(
+    'skips %s nodes in lintNode',
+    (nodeType) => {
+      const node: any = {
+        id: nextNodeId(),
+        name: nodeType,
+        type: nodeType,
+        visible: true,
+        locked: false,
+        children: [],
+      };
 
-    const result = runDesignLint([group]);
-    expect(result.summary.totalNodes).toBe(1);
-    expect(result.errors).toHaveLength(0);
-  });
+      const result = runDesignLint([node]);
+      expect(result.summary.totalNodes).toBe(1);
+      expect(result.errors).toHaveLength(0);
+    },
+  );
 
   it('respects settings that disable individual check categories', () => {
     const frame = createMockFrame({

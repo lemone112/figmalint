@@ -4,15 +4,20 @@
  * These modules run in Figma's QuickJS sandbox with global Figma types.
  * We mock the minimum surface area each module actually reads.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 
 // ── Figma global mock ────────────────────────────
 // typography.ts reads `figma.mixed` as a sentinel value.
 // We define it before any module import so the reference resolves.
 const MIXED_SENTINEL = Symbol('figma.mixed');
+const previousFigma = (globalThis as any).figma;
 (globalThis as any).figma = {
   mixed: MIXED_SENTINEL,
 };
+
+afterAll(() => {
+  (globalThis as any).figma = previousFigma;
+});
 
 import { checkLayoutSizing } from '../layout-sizing';
 import { checkConstraints } from '../constraints';
@@ -846,6 +851,21 @@ describe('checkComponentProps', () => {
 // LintIssue structure validation (cross-module)
 // ═══════════════════════════════════════════════════
 
+function expectLintIssueShape(issues: any[]) {
+  for (const issue of issues) {
+    expect(issue).toHaveProperty('id');
+    expect(issue).toHaveProperty('type');
+    expect(issue).toHaveProperty('severity');
+    expect(issue).toHaveProperty('nodeId');
+    expect(issue).toHaveProperty('nodeName');
+    expect(issue).toHaveProperty('message');
+    expect(issue).toHaveProperty('autoFixable');
+    expect(typeof issue.id).toBe('string');
+    expect(typeof issue.message).toBe('string');
+    expect(['critical', 'warning', 'info']).toContain(issue.severity);
+  }
+}
+
 describe('LintIssue structure', () => {
   it('every issue from checkLayoutSizing has required fields', () => {
     const child = createMockFrame({
@@ -859,18 +879,7 @@ describe('LintIssue structure', () => {
     });
 
     const result = checkLayoutSizing([parent]);
-    for (const issue of result.issues) {
-      expect(issue).toHaveProperty('id');
-      expect(issue).toHaveProperty('type');
-      expect(issue).toHaveProperty('severity');
-      expect(issue).toHaveProperty('nodeId');
-      expect(issue).toHaveProperty('nodeName');
-      expect(issue).toHaveProperty('message');
-      expect(issue).toHaveProperty('autoFixable');
-      expect(typeof issue.id).toBe('string');
-      expect(typeof issue.message).toBe('string');
-      expect(['critical', 'warning', 'info']).toContain(issue.severity);
-    }
+    expectLintIssueShape(result.issues);
   });
 
   it('every issue from checkConstraints has required fields', () => {
@@ -884,15 +893,7 @@ describe('LintIssue structure', () => {
     });
 
     const result = checkConstraints([parent]);
-    for (const issue of result.issues) {
-      expect(issue).toHaveProperty('id');
-      expect(issue).toHaveProperty('type');
-      expect(issue).toHaveProperty('severity');
-      expect(issue).toHaveProperty('nodeId');
-      expect(issue).toHaveProperty('nodeName');
-      expect(issue).toHaveProperty('message');
-      expect(issue).toHaveProperty('autoFixable');
-    }
+    expectLintIssueShape(result.issues);
   });
 
   it('every issue from checkTypography has required fields', () => {
@@ -908,15 +909,7 @@ describe('LintIssue structure', () => {
     });
 
     const result = checkTypography([frame]);
-    for (const issue of result.issues) {
-      expect(issue).toHaveProperty('id');
-      expect(issue).toHaveProperty('type');
-      expect(issue).toHaveProperty('severity');
-      expect(issue).toHaveProperty('nodeId');
-      expect(issue).toHaveProperty('nodeName');
-      expect(issue).toHaveProperty('message');
-      expect(issue).toHaveProperty('autoFixable');
-    }
+    expectLintIssueShape(result.issues);
   });
 
   it('every issue from checkComponentProps has required fields', () => {
@@ -927,14 +920,6 @@ describe('LintIssue structure', () => {
     });
 
     const result = checkComponentProps([comp]);
-    for (const issue of result.issues) {
-      expect(issue).toHaveProperty('id');
-      expect(issue).toHaveProperty('type');
-      expect(issue).toHaveProperty('severity');
-      expect(issue).toHaveProperty('nodeId');
-      expect(issue).toHaveProperty('nodeName');
-      expect(issue).toHaveProperty('message');
-      expect(issue).toHaveProperty('autoFixable');
-    }
+    expectLintIssueShape(result.issues);
   });
 });
