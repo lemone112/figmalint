@@ -33,6 +33,7 @@ import {
 import { FixRequest, FixPreviewRequest, BatchFixRequest, LintSettings } from '../types';
 import { exportScreenshot } from '../extract/screenshot';
 import { buildFlowGraph, analyzeFlowGraph } from '../flow/graph-builder';
+import { checkCrossScreenConsistency } from '../flow/cross-screen-checks';
 import { fixSpacingToNearest, fixAllSpacingOnNode } from '../fix/fix-spacing';
 import { fixRadiusToNearest } from '../fix/fix-radius';
 import { renameLayerById } from '../fix/rename-layer';
@@ -1393,10 +1394,24 @@ async function handleAnalyzeFlow(): Promise<void> {
       });
     }
 
-    // 4. Send results to UI
+    // 4. Cross-screen consistency checks (deterministic)
+    const frameNodesForConsistency: Array<{ frame: typeof graph.frames[0]; node: SceneNode }> = [];
+    for (const frame of graph.frames) {
+      const node = await figma.getNodeByIdAsync(frame.id);
+      if (node) {
+        frameNodesForConsistency.push({ frame, node: node as SceneNode });
+      }
+    }
+    const consistencyIssues = checkCrossScreenConsistency(frameNodesForConsistency, {
+      skipLocked: currentLintSettings.skipLockedLayers,
+      skipHidden: currentLintSettings.skipHiddenLayers,
+    });
+    const allGraphIssues = [...graphIssues, ...consistencyIssues];
+
+    // 5. Send results to UI
     sendMessageToUI('flow-analysis-result', {
       graph,
-      graphIssues,
+      graphIssues: allGraphIssues,
       screenshots,
       lintResults,
     });

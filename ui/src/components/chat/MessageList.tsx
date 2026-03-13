@@ -6,6 +6,7 @@ import IssuesList from '../messages/IssuesList';
 import FixResult from '../messages/FixResult';
 import AiReviewCard from '../messages/AiReviewCard';
 import ReferoGallery from '../messages/ReferoGallery';
+import FlowResultCard from '../messages/FlowResultCard';
 import ActionButtons from '../shared/ActionButtons';
 
 interface MessageListProps {
@@ -78,6 +79,8 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             return <AiReviewCard key={msg.id} data={m.data} />;
           case 'refero-gallery':
             return <ReferoGallery key={msg.id} data={m.data} />;
+          case 'flow-result':
+            return <FlowResultCard key={msg.id} data={m.data} onJumpToNode={onJumpToNode} />;
           case 'score-update': {
             const diff = m.data.newScore - m.data.oldScore;
             const arrow = diff > 0 ? '\u2191' : diff < 0 ? '\u2193' : '\u2192';

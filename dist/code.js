@@ -28,6 +28,2279 @@
       __defProp(target, name, { get: all[name], enumerable: true });
   };
 
+  // src/utils/figma-helpers.ts
+  function isValidNodeForAnalysis(node) {
+    const validTypes = ["FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE", "GROUP"];
+    if (!validTypes.includes(node.type)) {
+      return false;
+    }
+    if (node.type === "COMPONENT_SET") {
+      return true;
+    }
+    return true;
+  }
+  function rgbToHex(r, g, b) {
+    const toHex = (n) => {
+      const hex = Math.round(n * 255).toString(16);
+      return hex.length === 1 ? "0" + hex : hex;
+    };
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+  async function getVariableName(variableId) {
+    try {
+      const variable = await figma.variables.getVariableByIdAsync(variableId);
+      return variable ? variable.name : null;
+    } catch (error) {
+      console.warn("Could not access variable:", variableId, error);
+      return null;
+    }
+  }
+  async function getVariableValue(variableId, node) {
+    try {
+      const variable = await figma.variables.getVariableByIdAsync(variableId);
+      if (!variable) return null;
+      if (node && variable.resolveForConsumer) {
+        try {
+          const resolved = variable.resolveForConsumer(node);
+          if (resolved && typeof resolved.value === "object" && "r" in resolved.value) {
+            const color = resolved.value;
+            return rgbToHex(color.r, color.g, color.b);
+          } else if (resolved && resolved.value !== void 0) {
+            return String(resolved.value);
+          }
+        } catch (resolveError) {
+          console.warn("Could not resolve variable value:", resolveError);
+        }
+      }
+      return variable.name;
+    } catch (error) {
+      console.warn("Could not access variable:", variableId, error);
+      return null;
+    }
+  }
+  function sendMessageToUI(type, data) {
+    try {
+      figma.ui.postMessage({ type, data });
+    } catch (error) {
+      console.error("Failed to send message to UI:", error);
+    }
+  }
+  function getAllChildNodes(node) {
+    const nodes = [node];
+    if ("children" in node) {
+      for (const child of node.children) {
+        nodes.push(...getAllChildNodes(child));
+      }
+    }
+    return nodes;
+  }
+  function extractTextContent(node) {
+    const textContent = [];
+    if (node.type === "TEXT") {
+      const textNode = node;
+      if (textNode.characters) {
+        textContent.push(textNode.characters);
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        textContent.push(...extractTextContent(child));
+      }
+    }
+    return textContent;
+  }
+  function getLuminance(r, g, b) {
+    const [rs, gs, bs] = [r, g, b].map((c) => {
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+  }
+  function getContrastRatio(l1, l2) {
+    const lighter = Math.max(l1, l2);
+    const darker = Math.min(l1, l2);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+  function findBackgroundColor(node) {
+    let current = node.parent;
+    while (current && "type" in current) {
+      const sceneNode = current;
+      if ("fills" in sceneNode) {
+        const fills = sceneNode.fills;
+        if (Array.isArray(fills)) {
+          for (const fill of fills) {
+            if (fill.type === "SOLID" && fill.visible !== false && fill.color) {
+              if (fill.boundVariables && fill.boundVariables.color) continue;
+              return fill.color;
+            }
+          }
+        }
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+  function getNodePath(node) {
+    var _a;
+    const path = [];
+    let currentNode = node;
+    while (currentNode && currentNode.type !== "DOCUMENT") {
+      if (currentNode.type === "PAGE") {
+        break;
+      }
+      if (currentNode.type === "COMPONENT" && ((_a = currentNode.parent) == null ? void 0 : _a.type) === "COMPONENT_SET") {
+        path.unshift(`${currentNode.name}`);
+      } else {
+        path.unshift(currentNode.name);
+      }
+      currentNode = currentNode.parent;
+    }
+    return path.join(" \u2192 ");
+  }
+  function getDebugContext(node) {
+    var _a, _b;
+    const path = getNodePath(node);
+    let description = `Found in "${node.name}"`;
+    if (((_a = node.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" || node.parent && ((_b = node.parent.parent) == null ? void 0 : _b.type) === "COMPONENT_SET") {
+      description = `Found in variant: "${node.name}"`;
+    } else if (path.includes("\u2192")) {
+      const pathParts = path.split(" \u2192 ");
+      if (pathParts.length > 1) {
+        description = `Found in "${pathParts[pathParts.length - 1]}" (${pathParts[pathParts.length - 2]})`;
+      }
+    }
+    return { path, description };
+  }
+  var init_figma_helpers = __esm({
+    "src/utils/figma-helpers.ts"() {
+      "use strict";
+    }
+  });
+
+  // src/lint/types.ts
+  function findClosestSpacingValues(value, scale = DEFAULT_SPACING_SCALE) {
+    if (scale.includes(value)) return [];
+    const sorted = [...scale].map((v) => ({ v, diff: Math.abs(v - value) })).sort((a, b) => a.diff - b.diff);
+    const closest = [];
+    for (const s of sorted) {
+      if (closest.length >= 2) break;
+      if (!closest.includes(s.v)) closest.push(s.v);
+    }
+    return closest.sort((a, b) => a - b);
+  }
+  var DEFAULT_SPACING_SCALE, SPACING_SCALE;
+  var init_types = __esm({
+    "src/lint/types.ts"() {
+      "use strict";
+      DEFAULT_SPACING_SCALE = [0, 2, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96];
+      SPACING_SCALE = DEFAULT_SPACING_SCALE;
+    }
+  });
+
+  // src/lint/spacing.ts
+  function nextId() {
+    return `spacing-${++issueCounter}`;
+  }
+  function isValidSpacing(value) {
+    return activeScale.includes(value);
+  }
+  function spacingLabel(property) {
+    const map = {
+      itemSpacing: "Gap",
+      paddingTop: "Padding Top",
+      paddingBottom: "Padding Bottom",
+      paddingLeft: "Padding Left",
+      paddingRight: "Padding Right",
+      counterAxisSpacing: "Counter-axis Gap"
+    };
+    return map[property] || property;
+  }
+  function checkFrameSpacing(node, issues) {
+    var _a;
+    if (node.layoutMode === "NONE") return 0;
+    let checked = 0;
+    const spacingProperties = [
+      { prop: "itemSpacing", value: node.itemSpacing },
+      { prop: "paddingTop", value: node.paddingTop },
+      { prop: "paddingBottom", value: node.paddingBottom },
+      { prop: "paddingLeft", value: node.paddingLeft },
+      { prop: "paddingRight", value: node.paddingRight }
+    ];
+    if ("counterAxisSpacing" in node && typeof node.counterAxisSpacing === "number") {
+      spacingProperties.push({
+        prop: "counterAxisSpacing",
+        value: node.counterAxisSpacing
+      });
+    }
+    for (const { prop, value } of spacingProperties) {
+      checked++;
+      if (!isValidSpacing(value)) {
+        const suggestions = findClosestSpacingValues(value, activeScale);
+        issues.push({
+          id: nextId(),
+          type: "spacing",
+          severity: "warning",
+          nodeId: node.id,
+          nodeName: node.name,
+          message: `${spacingLabel(prop)} is ${value}px \u2014 not in spacing scale`,
+          currentValue: `${value}px`,
+          suggestions: suggestions.map((s) => `${s}px`),
+          autoFixable: true,
+          fixAction: {
+            type: "fixSpacing",
+            params: {
+              nodeId: node.id,
+              property: prop,
+              currentValue: value,
+              suggestedValue: (_a = suggestions[0]) != null ? _a : value
+            }
+          }
+        });
+      }
+    }
+    return checked;
+  }
+  function traverseForSpacing(node, issues, skipLocked, skipHidden, parentLocked) {
+    const isLocked = parentLocked || "locked" in node && node.locked;
+    const isHidden = "visible" in node && !node.visible;
+    if (skipLocked && isLocked) return { checked: 0, passed: 0 };
+    if (skipHidden && isHidden) return { checked: 0, passed: 0 };
+    let checked = 0;
+    let passed = 0;
+    if (node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE") {
+      const preLen = issues.length;
+      const count = checkFrameSpacing(node, issues);
+      checked += count;
+      passed += count - (issues.length - preLen);
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        const sub = traverseForSpacing(child, issues, skipLocked, skipHidden, isLocked);
+        checked += sub.checked;
+        passed += sub.passed;
+      }
+    }
+    return { checked, passed };
+  }
+  function checkSpacing(nodes, options = {}) {
+    const { skipLocked = true, skipHidden = true, scale } = options;
+    activeScale = scale || DEFAULT_SPACING_SCALE;
+    issueCounter = 0;
+    const issues = [];
+    let totalChecked = 0;
+    let totalPassed = 0;
+    for (const node of nodes) {
+      const { checked, passed } = traverseForSpacing(node, issues, skipLocked, skipHidden, false);
+      totalChecked += checked;
+      totalPassed += passed;
+    }
+    return {
+      issues,
+      summary: {
+        totalChecked,
+        passed: totalPassed,
+        failed: issues.length
+      }
+    };
+  }
+  var issueCounter, activeScale;
+  var init_spacing = __esm({
+    "src/lint/spacing.ts"() {
+      "use strict";
+      init_types();
+      issueCounter = 0;
+      activeScale = DEFAULT_SPACING_SCALE;
+    }
+  });
+
+  // src/lint/auto-layout.ts
+  function nextId2() {
+    return `autolayout-${++issueCounter2}`;
+  }
+  function traverseForAutoLayout(node, issues, skipLocked, skipHidden, parentLocked) {
+    const isLocked = parentLocked || "locked" in node && node.locked;
+    const isHidden = "visible" in node && !node.visible;
+    if (skipLocked && isLocked) return { totalFrames: 0, withAutoLayout: 0 };
+    if (skipHidden && isHidden) return { totalFrames: 0, withAutoLayout: 0 };
+    let totalFrames = 0;
+    let withAutoLayout = 0;
+    const isFrameLike = node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE";
+    if (isFrameLike && "children" in node) {
+      const children = node.children;
+      if (children.length >= 2) {
+        totalFrames++;
+        const frameNode = node;
+        if (frameNode.layoutMode !== "NONE") {
+          withAutoLayout++;
+        } else {
+          issues.push({
+            id: nextId2(),
+            type: "autoLayout",
+            severity: "warning",
+            nodeId: node.id,
+            nodeName: node.name,
+            message: `Frame "${node.name}" has ${children.length} children but no Auto Layout`,
+            currentValue: "No Auto Layout",
+            suggestions: ["HORIZONTAL", "VERTICAL"],
+            autoFixable: false
+            // Converting to auto-layout can break designs
+          });
+        }
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        const sub = traverseForAutoLayout(child, issues, skipLocked, skipHidden, isLocked);
+        totalFrames += sub.totalFrames;
+        withAutoLayout += sub.withAutoLayout;
+      }
+    }
+    return { totalFrames, withAutoLayout };
+  }
+  function checkAutoLayout(nodes, options = {}) {
+    const { skipLocked = true, skipHidden = true } = options;
+    issueCounter2 = 0;
+    const issues = [];
+    let totalFrames = 0;
+    let withAutoLayout = 0;
+    for (const node of nodes) {
+      const sub = traverseForAutoLayout(node, issues, skipLocked, skipHidden, false);
+      totalFrames += sub.totalFrames;
+      withAutoLayout += sub.withAutoLayout;
+    }
+    const withoutAutoLayout = totalFrames - withAutoLayout;
+    const percentage = totalFrames > 0 ? Math.round(withAutoLayout / totalFrames * 100) : 100;
+    return {
+      issues,
+      summary: {
+        totalFrames,
+        withAutoLayout,
+        withoutAutoLayout,
+        percentage
+      }
+    };
+  }
+  var issueCounter2;
+  var init_auto_layout = __esm({
+    "src/lint/auto-layout.ts"() {
+      "use strict";
+      issueCounter2 = 0;
+    }
+  });
+
+  // src/lint/accessibility.ts
+  function nextId3() {
+    return `a11y-${++issueCounter3}`;
+  }
+  function isInteractiveName(name) {
+    return INTERACTIVE_PATTERNS.test(name);
+  }
+  function checkContrastRatio(node, issues) {
+    if (node.type !== "TEXT") return;
+    const textNode = node;
+    const fills = textNode.fills;
+    if (fills === figma.mixed || !Array.isArray(fills)) return;
+    const textFill = fills.find(
+      (f) => {
+        var _a;
+        return f.type === "SOLID" && f.visible !== false && f.color && !((_a = f.boundVariables) == null ? void 0 : _a.color);
+      }
+    );
+    if (!textFill || textFill.type !== "SOLID") return;
+    const bgColor = findBackgroundColor(node);
+    if (!bgColor) return;
+    const textColor = textFill.color;
+    const textLum = getLuminance(textColor.r, textColor.g, textColor.b);
+    const bgLum = getLuminance(bgColor.r, bgColor.g, bgColor.b);
+    const ratio = getContrastRatio(textLum, bgLum);
+    const fontSize = textNode.fontSize !== figma.mixed ? textNode.fontSize : 0;
+    const fontWeight = textNode.fontName !== figma.mixed ? textNode.fontName.style : "";
+    const isBold = fontWeight.toLowerCase().includes("bold") || fontWeight.toLowerCase().includes("black");
+    const isLargeText = fontSize >= 18 || fontSize >= 14 && isBold;
+    const threshold = isLargeText ? 3 : 4.5;
+    if (ratio < threshold) {
+      const ratioStr = ratio.toFixed(1);
+      issues.push({
+        id: nextId3(),
+        type: "accessibility",
+        severity: "critical",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `Contrast ratio ${ratioStr}:1 below WCAG AA ${isLargeText ? "large text" : ""} minimum of ${threshold}:1`,
+        currentValue: `${ratioStr}:1`,
+        suggestions: [`Increase contrast to at least ${threshold}:1`],
+        autoFixable: false
+      });
+    }
+  }
+  function checkTouchTarget(node, issues) {
+    if (node.type !== "FRAME" && node.type !== "COMPONENT" && node.type !== "INSTANCE") return;
+    if (!isInteractiveName(node.name)) return;
+    const width = node.width;
+    const height = node.height;
+    if (width < 44 || height < 44) {
+      issues.push({
+        id: nextId3(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `Touch target ${Math.round(width)}x${Math.round(height)}px is below 44x44px recommended minimum`,
+        currentValue: `${Math.round(width)}x${Math.round(height)}px`,
+        suggestions: ["Increase to at least 44x44px"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkMinTextSize(node, issues) {
+    if (node.type !== "TEXT") return;
+    const textNode = node;
+    const fontSize = textNode.fontSize;
+    if (fontSize === figma.mixed || typeof fontSize !== "number") return;
+    if (fontSize > 0 && fontSize < 12) {
+      issues.push({
+        id: nextId3(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `Text size ${fontSize}px is below 12px readability minimum`,
+        currentValue: `${fontSize}px`,
+        suggestions: ["12px", "14px"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkIconOnlyWithoutLabel(node, issues) {
+    if (node.type !== "COMPONENT" && node.type !== "INSTANCE") return;
+    if (!isInteractiveName(node.name)) return;
+    const frame = node;
+    if (!("children" in frame) || frame.children.length === 0) return;
+    const hasText = frame.children.some((child) => {
+      var _a, _b;
+      if (child.type === "TEXT") return true;
+      if ("children" in child) {
+        return (_b = (_a = child.children) == null ? void 0 : _a.some) == null ? void 0 : _b.call(_a, (c) => c.type === "TEXT");
+      }
+      return false;
+    });
+    if (!hasText) {
+      issues.push({
+        id: nextId3(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `Interactive element "${node.name}" has no visible text label`,
+        currentValue: "No text child",
+        suggestions: ["Add a text label or ensure screen reader label is provided"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkGenericLayerNames(node, issues) {
+    if (node.type !== "FRAME" && node.type !== "COMPONENT" && node.type !== "INSTANCE") return;
+    if (!("children" in node) || node.children.length === 0) return;
+    if (GENERIC_NAME_PATTERN.test(node.name)) {
+      issues.push({
+        id: nextId3(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `Generic layer name "${node.name}" \u2014 use a descriptive name`,
+        currentValue: node.name,
+        suggestions: ["Rename to describe the layer purpose"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkNonTextContrast(node, issues) {
+    if (node.type !== "COMPONENT" && node.type !== "INSTANCE") return;
+    if (!isInteractiveName(node.name)) return;
+    const frame = node;
+    let boundaryColor = null;
+    const strokes = frame.strokes;
+    if (Array.isArray(strokes)) {
+      const visibleStroke = strokes.find((s) => s.type === "SOLID" && s.visible !== false);
+      if (visibleStroke && visibleStroke.type === "SOLID") {
+        boundaryColor = visibleStroke.color;
+      }
+    }
+    if (!boundaryColor) {
+      const fills = frame.fills;
+      if (fills !== figma.mixed && Array.isArray(fills)) {
+        const visibleFill = fills.find((f) => f.type === "SOLID" && f.visible !== false);
+        if (visibleFill && visibleFill.type === "SOLID") {
+          boundaryColor = visibleFill.color;
+        }
+      }
+    }
+    if (!boundaryColor) return;
+    const bgColor = findBackgroundColor(node);
+    if (!bgColor) return;
+    const boundaryLum = getLuminance(boundaryColor.r, boundaryColor.g, boundaryColor.b);
+    const bgLum = getLuminance(bgColor.r, bgColor.g, bgColor.b);
+    const ratio = getContrastRatio(boundaryLum, bgLum);
+    if (ratio < 3) {
+      issues.push({
+        id: nextId3(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `Non-text contrast ${ratio.toFixed(1)}:1 below WCAG 1.4.11 minimum of 3:1`,
+        currentValue: `${ratio.toFixed(1)}:1`,
+        suggestions: ["Increase boundary contrast to at least 3:1 against background"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkColorOnlyInfo(node, issues) {
+    if (node.type !== "FRAME" && node.type !== "COMPONENT" && node.type !== "INSTANCE") return;
+    if (!STATUS_NAME_PATTERN.test(node.name)) return;
+    const frame = node;
+    if (!("children" in frame) || frame.children.length === 0) return;
+    const hasTextOrIcon = frame.children.some((child) => {
+      var _a, _b;
+      if (child.type === "TEXT") return true;
+      if (/icon|svg|symbol|glyph/i.test(child.name)) return true;
+      if ("children" in child) {
+        return (_b = (_a = child.children) == null ? void 0 : _a.some) == null ? void 0 : _b.call(
+          _a,
+          (c) => c.type === "TEXT" || /icon|svg|symbol|glyph/i.test(c.name)
+        );
+      }
+      return false;
+    });
+    if (!hasTextOrIcon) {
+      issues.push({
+        id: nextId3(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `"${node.name}" may rely on color alone to convey status (WCAG 1.4.1)`,
+        currentValue: "No text or icon indicator",
+        suggestions: ["Add a text label or icon to supplement the color indicator"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkStateCoverage(node, issues) {
+    if (node.type !== "COMPONENT") return;
+    const parent = node.parent;
+    if (!parent || parent.type !== "COMPONENT_SET") return;
+    const componentSet = parent;
+    const siblingNames = componentSet.children.map((c) => c.name.toLowerCase());
+    const allNames = siblingNames.join(" ");
+    const requiredStates = ["hover", "focus", "disabled", "pressed"];
+    const missing = requiredStates.filter((state) => !allNames.includes(state));
+    if (missing.length > 0) {
+      issues.push({
+        id: nextId3(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `Component set missing states: ${missing.join(", ")}`,
+        currentValue: `${componentSet.children.length} variants`,
+        suggestions: missing.map((s) => `Add ${s} variant`),
+        autoFixable: false
+      });
+    }
+  }
+  function traverseForAccessibility(node, issues, skipLocked, skipHidden, parentLocked, seenComponentSets) {
+    var _a;
+    const isLocked = parentLocked || "locked" in node && node.locked;
+    const isHidden = "visible" in node && !node.visible;
+    if (skipLocked && isLocked) return 0;
+    if (skipHidden && isHidden) return 0;
+    let checked = 0;
+    checkContrastRatio(node, issues);
+    checkTouchTarget(node, issues);
+    checkMinTextSize(node, issues);
+    checked++;
+    checkIconOnlyWithoutLabel(node, issues);
+    checkGenericLayerNames(node, issues);
+    checkNonTextContrast(node, issues);
+    checkColorOnlyInfo(node, issues);
+    if (node.type === "COMPONENT" && ((_a = node.parent) == null ? void 0 : _a.type) === "COMPONENT_SET") {
+      const setId = node.parent.id;
+      if (!seenComponentSets.has(setId)) {
+        seenComponentSets.add(setId);
+        checkStateCoverage(node, issues);
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        checked += traverseForAccessibility(child, issues, skipLocked, skipHidden, isLocked, seenComponentSets);
+      }
+    }
+    return checked;
+  }
+  function checkAccessibility(nodes, options = {}) {
+    const { skipLocked = true, skipHidden = true } = options;
+    issueCounter3 = 0;
+    const issues = [];
+    const seenComponentSets = /* @__PURE__ */ new Set();
+    let totalChecked = 0;
+    for (const node of nodes) {
+      totalChecked += traverseForAccessibility(node, issues, skipLocked, skipHidden, false, seenComponentSets);
+    }
+    return {
+      issues,
+      summary: {
+        totalChecked,
+        contrastIssues: issues.filter((i) => i.message.includes("Contrast")).length,
+        touchTargetIssues: issues.filter((i) => i.message.includes("Touch target")).length,
+        textSizeIssues: issues.filter((i) => i.message.includes("Text size")).length,
+        namingIssues: issues.filter((i) => i.message.includes("text label") || i.message.includes("Generic")).length,
+        stateIssues: issues.filter((i) => i.message.includes("missing states")).length,
+        nonTextContrastIssues: issues.filter((i) => i.message.includes("Non-text contrast")).length,
+        colorOnlyIssues: issues.filter((i) => i.message.includes("color alone")).length
+      }
+    };
+  }
+  var issueCounter3, INTERACTIVE_PATTERNS, GENERIC_NAME_PATTERN, STATUS_NAME_PATTERN;
+  var init_accessibility = __esm({
+    "src/lint/accessibility.ts"() {
+      "use strict";
+      init_figma_helpers();
+      issueCounter3 = 0;
+      INTERACTIVE_PATTERNS = /\b(button|btn|input|link|checkbox|toggle|switch|tab|radio|select|dropdown|menu-item|slider|chip)\b/i;
+      GENERIC_NAME_PATTERN = /^(Frame|Group|Rectangle|Ellipse|Vector|Line|Polygon|Star)\s*\d+$/i;
+      STATUS_NAME_PATTERN = /\b(error|success|warning|status|alert|badge|danger|info)\b/i;
+    }
+  });
+
+  // src/lint/visual-quality.ts
+  function nextId4() {
+    return `vq-${++issueCounter4}`;
+  }
+  function isOnAnyScale(size) {
+    return STANDARD_TYPE_SCALES.some((scale) => scale.includes(size));
+  }
+  function checkDensity(frame, issues) {
+    const area = frame.width * frame.height;
+    if (area === 0) return;
+    const visibleChildren = "children" in frame ? frame.children.filter((c) => c.visible !== false) : [];
+    const childCount = visibleChildren.length;
+    const density = childCount / area * 1e3;
+    if (density > 3) {
+      issues.push({
+        id: nextId4(),
+        type: "accessibility",
+        // mapped to visual quality in orchestrator
+        severity: "warning",
+        nodeId: frame.id,
+        nodeName: frame.name,
+        message: `High visual density: ${childCount} elements in ${Math.round(area / 1e3)}k px\xB2 (${density.toFixed(2)}/1000px\xB2). Consider simplifying or using progressive disclosure.`,
+        currentValue: `${density.toFixed(2)} elements/1000px\xB2`,
+        suggestions: ["Reduce visible elements to under 15 per viewport", "Group related items", "Use progressive disclosure"],
+        autoFixable: false
+      });
+    }
+  }
+  function collectFontSizes(node, sizes, lineHeightData, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (node.type === "TEXT") {
+      const textNode = node;
+      const fs = textNode.fontSize;
+      if (fs !== figma.mixed && typeof fs === "number") {
+        sizes.add(fs);
+        const lh = textNode.lineHeight;
+        if (lh !== figma.mixed && typeof lh === "object" && lh.unit === "PIXELS") {
+          const ratio = lh.value / fs;
+          lineHeightData.push({ fontSize: fs, lineHeight: lh.value, ratio });
+        }
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectFontSizes(child, sizes, lineHeightData, skipLocked, skipHidden);
+      }
+    }
+  }
+  function checkTypographyRhythm(frame, issues, skipLocked, skipHidden) {
+    const sizes = /* @__PURE__ */ new Set();
+    const lineHeightData = [];
+    collectFontSizes(frame, sizes, lineHeightData, skipLocked, skipHidden);
+    const sizeArr = Array.from(sizes).sort((a, b) => a - b);
+    const offScale = sizeArr.filter((s) => !isOnAnyScale(s));
+    if (offScale.length > 0) {
+      issues.push({
+        id: nextId4(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: `Non-standard font sizes: ${offScale.join(", ")}px. Consider using a type scale (e.g., 12/14/16/20/24/32).`,
+        currentValue: offScale.map((s) => `${s}px`).join(", "),
+        suggestions: offScale.map((s) => {
+          const nearest = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48].reduce((prev, curr) => Math.abs(curr - s) < Math.abs(prev - s) ? curr : prev);
+          return `${s}px \u2192 ${nearest}px`;
+        }),
+        autoFixable: false
+      });
+    }
+    const badRatios = lineHeightData.filter((d) => d.ratio < 1.2 || d.ratio > 2);
+    if (badRatios.length > 0) {
+      const worst = badRatios.reduce(
+        (prev, curr) => Math.abs(curr.ratio - 1.5) > Math.abs(prev.ratio - 1.5) ? curr : prev
+      );
+      issues.push({
+        id: nextId4(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: `Line height ratio ${worst.ratio.toFixed(2)} (${worst.lineHeight}px / ${worst.fontSize}px) is outside optimal range 1.3\u20131.6.`,
+        currentValue: `${worst.ratio.toFixed(2)}`,
+        suggestions: [
+          `Set line height to ${Math.round(worst.fontSize * 1.5)}px (1.5\xD7 body) or ${Math.round(worst.fontSize * 1.3)}px (1.3\xD7 headings)`
+        ],
+        autoFixable: false
+      });
+    }
+    return { sizes: sizeArr, lineHeightData };
+  }
+  function collectColors(node, colors, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if ("fills" in node) {
+      const fills = node.fills;
+      if (fills !== figma.mixed && Array.isArray(fills)) {
+        for (const fill of fills) {
+          if (fill.visible !== false && fill.type === "SOLID") {
+            colors.add(rgbToHex(fill.color.r, fill.color.g, fill.color.b));
+          }
+        }
+      }
+    }
+    if ("strokes" in node) {
+      const strokes = node.strokes;
+      if (Array.isArray(strokes)) {
+        for (const stroke of strokes) {
+          if (stroke.visible !== false && stroke.type === "SOLID") {
+            colors.add(rgbToHex(stroke.color.r, stroke.color.g, stroke.color.b));
+          }
+        }
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectColors(child, colors, skipLocked, skipHidden);
+      }
+    }
+  }
+  function checkColorCount(frame, issues, skipLocked, skipHidden) {
+    const colors = /* @__PURE__ */ new Set();
+    collectColors(frame, colors, skipLocked, skipHidden);
+    const colorArr = Array.from(colors);
+    if (colorArr.length > 8) {
+      issues.push({
+        id: nextId4(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: `${colorArr.length} unique colors detected. A cohesive palette typically uses 5\u20137 colors (primary, secondary, accent, neutrals).`,
+        currentValue: `${colorArr.length} colors`,
+        suggestions: ["Consolidate similar colors into design tokens", "Limit palette to primary, secondary, accent, and 2-3 neutrals"],
+        autoFixable: false
+      });
+    }
+    return colorArr;
+  }
+  function checkAlignment(frame, issues, gridSize = 4) {
+    if (!("children" in frame)) return 0;
+    const children = frame.children.filter((c) => c.visible !== false);
+    let misaligned = 0;
+    for (const child of children) {
+      if (!("x" in child) || !("y" in child)) continue;
+      const x = child.x;
+      const y = child.y;
+      const xOff = Math.round(x) % gridSize;
+      const yOff = Math.round(y) % gridSize;
+      if (xOff !== 0 || yOff !== 0) {
+        misaligned++;
+      }
+    }
+    if (misaligned > 0 && misaligned / Math.max(children.length, 1) > 0.3) {
+      issues.push({
+        id: nextId4(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: frame.id,
+        nodeName: frame.name,
+        message: `${misaligned}/${children.length} direct children are misaligned from ${gridSize}px grid.`,
+        currentValue: `${misaligned} misaligned`,
+        suggestions: [`Snap elements to ${gridSize}px grid for visual consistency`],
+        autoFixable: false
+      });
+    }
+    return misaligned;
+  }
+  function collectButtonSizes(node, sizes, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    const isButton = /button|btn|cta/i.test(node.name);
+    if (isButton && "width" in node && "height" in node) {
+      sizes.push({ nodeId: node.id, nodeName: node.name, width: node.width, height: node.height });
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectButtonSizes(child, sizes, skipLocked, skipHidden);
+      }
+    }
+  }
+  function checkSizeConsistency(frame, issues, skipLocked, skipHidden) {
+    const buttons = [];
+    collectButtonSizes(frame, buttons, skipLocked, skipHidden);
+    if (buttons.length < 2) return;
+    const heights = buttons.map((b) => b.height);
+    const avgHeight = heights.reduce((a, b) => a + b, 0) / heights.length;
+    const maxDeviation = Math.max(...heights.map((h) => Math.abs(h - avgHeight)));
+    const deviationPct = maxDeviation / avgHeight * 100;
+    if (deviationPct > 15) {
+      const smallest = Math.min(...heights);
+      const largest = Math.max(...heights);
+      issues.push({
+        id: nextId4(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: `Button height inconsistency: ${smallest}px to ${largest}px (${Math.round(deviationPct)}% variance). Standardize to 2-3 size tiers.`,
+        currentValue: `${smallest}\u2013${largest}px`,
+        suggestions: ["Use consistent button heights: 32px (small), 40px (medium), 48px (large)"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkVisualQuality(nodes, options = {}) {
+    var _a, _b;
+    issueCounter4 = 0;
+    const issues = [];
+    const skipLocked = (_a = options.skipLocked) != null ? _a : true;
+    const skipHidden = (_b = options.skipHidden) != null ? _b : true;
+    let totalChecked = 0;
+    let allSizes = [];
+    let allLineHeightData = [];
+    let allColors = [];
+    let totalMisaligned = 0;
+    let totalChildren = 0;
+    let totalArea = 0;
+    for (const node of nodes) {
+      if ("children" in node && "width" in node && "height" in node) {
+        checkDensity(node, issues);
+        totalChildren += node.children.length;
+        totalArea += node.width * node.height;
+        totalChecked++;
+      }
+      const typo = checkTypographyRhythm(node, issues, skipLocked, skipHidden);
+      allSizes = [.../* @__PURE__ */ new Set([...allSizes, ...typo.sizes])];
+      allLineHeightData = [...allLineHeightData, ...typo.lineHeightData];
+      totalChecked++;
+      const colors = checkColorCount(node, issues, skipLocked, skipHidden);
+      allColors = [.../* @__PURE__ */ new Set([...allColors, ...colors])];
+      totalChecked++;
+      if ("children" in node) {
+        totalMisaligned += checkAlignment(node, issues);
+        totalChecked++;
+      }
+      checkSizeConsistency(node, issues, skipLocked, skipHidden);
+      totalChecked++;
+    }
+    const density = totalArea > 0 ? totalChildren / totalArea * 1e3 : 0;
+    return {
+      issues,
+      metrics: {
+        childCount: totalChildren,
+        areaPx: totalArea,
+        density,
+        uniqueFontSizes: allSizes,
+        lineHeightRatios: allLineHeightData,
+        uniqueColors: allColors,
+        misalignedCount: totalMisaligned
+      },
+      summary: {
+        totalChecked,
+        passed: totalChecked - issues.length,
+        failed: issues.length
+      }
+    };
+  }
+  var issueCounter4, STANDARD_TYPE_SCALES;
+  var init_visual_quality = __esm({
+    "src/lint/visual-quality.ts"() {
+      "use strict";
+      init_figma_helpers();
+      issueCounter4 = 0;
+      STANDARD_TYPE_SCALES = [
+        [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64, 72],
+        // common UI sizes
+        [12, 14, 16, 20, 24, 32, 40, 48],
+        // Material 3
+        [12, 14, 16, 18, 21, 24, 30, 36, 48, 60, 72]
+        // Tailwind
+      ];
+    }
+  });
+
+  // src/lint/microcopy.ts
+  function nextId5() {
+    return `mc-${++issueCounter5}`;
+  }
+  function isButtonContext(node) {
+    if (BUTTON_NAME_RE.test(node.name)) return true;
+    let parent = node.parent;
+    let depth = 0;
+    while (parent && depth < 4) {
+      if ("name" in parent && BUTTON_NAME_RE.test(parent.name)) return true;
+      if ("type" in parent && (parent.type === "COMPONENT" || parent.type === "INSTANCE")) {
+        if ("name" in parent && BUTTON_NAME_RE.test(parent.name)) return true;
+      }
+      parent = parent.parent;
+      depth++;
+    }
+    return false;
+  }
+  function wordCount(text) {
+    return text.trim().split(/\s+/).filter(Boolean).length;
+  }
+  function checkTextNode(node, issues) {
+    const text = node.characters;
+    if (!text || text.trim().length === 0) {
+      issues.push({
+        id: nextId5(),
+        type: "naming",
+        severity: "info",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: "Empty text node \u2014 remove or add content.",
+        currentValue: "(empty)",
+        autoFixable: false
+      });
+      return;
+    }
+    const trimmed = text.trim();
+    const words = wordCount(trimmed);
+    const inButton = isButtonContext(node);
+    if (CLICK_HERE_RE.test(trimmed) || TAP_HERE_RE.test(trimmed)) {
+      issues.push({
+        id: nextId5(),
+        type: "naming",
+        severity: "warning",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `"${trimmed.substring(0, 40)}" \u2014 avoid "click/tap here". Use descriptive action: "Download report", "View details".`,
+        currentValue: trimmed.substring(0, 60),
+        suggestions: ['Use verb + object: "Download PDF", "View pricing", "Start trial"'],
+        autoFixable: false
+      });
+    }
+    if (LEARN_MORE_BARE_RE.test(trimmed)) {
+      issues.push({
+        id: nextId5(),
+        type: "naming",
+        severity: "info",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: '"Learn more" is vague \u2014 specify what the user will learn: "Learn more about pricing".',
+        currentValue: trimmed,
+        suggestions: ['Add specificity: "Learn more about [topic]"'],
+        autoFixable: false
+      });
+    }
+    if (inButton && words <= 2) {
+      const lower = trimmed.toLowerCase().replace(/[.!]/g, "");
+      if (GENERIC_CTAS.has(lower)) {
+        issues.push({
+          id: nextId5(),
+          type: "naming",
+          severity: "info",
+          nodeId: node.id,
+          nodeName: node.name,
+          message: `Generic CTA "${trimmed}" \u2014 use a specific action: "Save changes", "Send message", "Create account".`,
+          currentValue: trimmed,
+          suggestions: ["Replace with verb + object describing the outcome"],
+          autoFixable: false
+        });
+      }
+    }
+    if (inButton) {
+      if (words > 5) {
+        issues.push({
+          id: nextId5(),
+          type: "naming",
+          severity: "info",
+          nodeId: node.id,
+          nodeName: node.name,
+          message: `CTA too long (${words} words): "${trimmed.substring(0, 50)}\u2026". Keep CTAs to 2\u20135 words.`,
+          currentValue: `${words} words`,
+          suggestions: ["Shorten to verb + object (2-5 words)"],
+          autoFixable: false
+        });
+      }
+    }
+    if (PLACEHOLDER_RE.test(trimmed) || PLACEHOLDER_GENERIC_RE.test(trimmed)) {
+      issues.push({
+        id: nextId5(),
+        type: "naming",
+        severity: "warning",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `Placeholder text detected: "${trimmed.substring(0, 40)}\u2026". Replace with real content.`,
+        currentValue: trimmed.substring(0, 60),
+        suggestions: ["Replace with actual copy or realistic sample data"],
+        autoFixable: false
+      });
+    }
+    if (words > 80 && !inButton) {
+      issues.push({
+        id: nextId5(),
+        type: "naming",
+        severity: "info",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `Long text block (${words} words). Break into shorter paragraphs or use bullet points for readability.`,
+        currentValue: `${words} words`,
+        suggestions: ["Break into paragraphs of \u226450 words", "Use bullet points for lists", "Add subheadings"],
+        autoFixable: false
+      });
+    }
+    if (trimmed === trimmed.toUpperCase() && trimmed !== trimmed.toLowerCase() && words > 3) {
+      issues.push({
+        id: nextId5(),
+        type: "naming",
+        severity: "info",
+        nodeId: node.id,
+        nodeName: node.name,
+        message: `All-caps text with ${words} words: "${trimmed.substring(0, 40)}\u2026". ALL CAPS reduces readability \u2014 use sentence case or title case.`,
+        currentValue: trimmed.substring(0, 60),
+        suggestions: ["Use sentence case for readability", "Reserve ALL CAPS for short labels (1-2 words)"],
+        autoFixable: false
+      });
+    }
+    if (UNFORMATTED_NUMBER_RE.test(trimmed)) {
+      const matches = trimmed.match(/\b\d{4,}\b/g) || [];
+      const nonYears = matches.filter((m) => {
+        const n = parseInt(m, 10);
+        return n < 1900 || n > 2099;
+      });
+      if (nonYears.length > 0) {
+        issues.push({
+          id: nextId5(),
+          type: "naming",
+          severity: "info",
+          nodeId: node.id,
+          nodeName: node.name,
+          message: `Unformatted number${nonYears.length > 1 ? "s" : ""}: ${nonYears.join(", ")}. Use thousand separators for readability.`,
+          currentValue: nonYears.join(", "),
+          suggestions: ["Format as 1,000,000 or 1 000 000"],
+          autoFixable: false
+        });
+      }
+    }
+  }
+  function traverseForMicrocopy(node, issues, metrics, skipLocked, skipHidden) {
+    var _a;
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (node.type === "TEXT") {
+      metrics.totalTextNodes++;
+      const text = ((_a = node.characters) == null ? void 0 : _a.trim()) || "";
+      const words = wordCount(text);
+      if (words > 0) {
+        metrics.wordCounts.push(words);
+        if (words > metrics.longestParagraph) {
+          metrics.longestParagraph = words;
+        }
+      }
+      if (isButtonContext(node)) {
+        metrics.ctaNodes++;
+      }
+      checkTextNode(node, issues);
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        traverseForMicrocopy(child, issues, metrics, skipLocked, skipHidden);
+      }
+    }
+  }
+  function checkMicrocopy(nodes, options = {}) {
+    var _a, _b;
+    issueCounter5 = 0;
+    const issues = [];
+    const skipLocked = (_a = options.skipLocked) != null ? _a : true;
+    const skipHidden = (_b = options.skipHidden) != null ? _b : true;
+    const metrics = {
+      totalTextNodes: 0,
+      ctaNodes: 0,
+      wordCounts: [],
+      longestParagraph: 0
+    };
+    for (const node of nodes) {
+      traverseForMicrocopy(node, issues, metrics, skipLocked, skipHidden);
+    }
+    const avgWordCount = metrics.wordCounts.length > 0 ? metrics.wordCounts.reduce((a, b) => a + b, 0) / metrics.wordCounts.length : 0;
+    return {
+      issues,
+      metrics: {
+        totalTextNodes: metrics.totalTextNodes,
+        ctaNodes: metrics.ctaNodes,
+        avgWordCount: Math.round(avgWordCount * 10) / 10,
+        longestParagraph: metrics.longestParagraph
+      },
+      summary: {
+        totalChecked: metrics.totalTextNodes,
+        passed: metrics.totalTextNodes - issues.length,
+        failed: issues.length
+      }
+    };
+  }
+  var issueCounter5, CLICK_HERE_RE, LEARN_MORE_BARE_RE, TAP_HERE_RE, GENERIC_CTAS, PLACEHOLDER_RE, PLACEHOLDER_GENERIC_RE, UNFORMATTED_NUMBER_RE, BUTTON_NAME_RE;
+  var init_microcopy = __esm({
+    "src/lint/microcopy.ts"() {
+      "use strict";
+      issueCounter5 = 0;
+      CLICK_HERE_RE = /\bclick\s+here\b/i;
+      LEARN_MORE_BARE_RE = /^learn\s+more\.?$/i;
+      TAP_HERE_RE = /\btap\s+here\b/i;
+      GENERIC_CTAS = /* @__PURE__ */ new Set([
+        "submit",
+        "ok",
+        "okay",
+        "next",
+        "continue",
+        "go",
+        "yes",
+        "no",
+        "done",
+        "send",
+        "save",
+        "apply"
+      ]);
+      PLACEHOLDER_RE = /\blorem\s+ipsum\b/i;
+      PLACEHOLDER_GENERIC_RE = /^(enter\s+text|type\s+here|placeholder|sample\s+text|your\s+text|add\s+text)\.?$/i;
+      UNFORMATTED_NUMBER_RE = /\b\d{4,}\b/;
+      BUTTON_NAME_RE = /button|btn|cta|action|submit|link/i;
+    }
+  });
+
+  // src/lint/conversion.ts
+  function nextId6() {
+    return `conv-${++issueCounter6}`;
+  }
+  function isCTA(node) {
+    if (CTA_NAME_RE.test(node.name)) return true;
+    let parent = node.parent;
+    let depth = 0;
+    while (parent && depth < 3) {
+      if ("name" in parent && CTA_NAME_RE.test(parent.name)) return true;
+      parent = parent.parent;
+      depth++;
+    }
+    return false;
+  }
+  function isFormField(node) {
+    return FORM_FIELD_RE.test(node.name);
+  }
+  function getBackgroundColor(frame) {
+    if (!("fills" in frame)) return null;
+    const fills = frame.fills;
+    if (fills === figma.mixed || !Array.isArray(fills)) return null;
+    const solid = fills.find((f) => f.type === "SOLID" && f.visible !== false);
+    return solid ? solid.color : null;
+  }
+  function luminance(r, g, b) {
+    const sRGB = [r, g, b].map((c) => {
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * sRGB[0] + 0.7152 * sRGB[1] + 0.0722 * sRGB[2];
+  }
+  function contrastRatio(l1, l2) {
+    const lighter = Math.max(l1, l2);
+    const darker = Math.min(l1, l2);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+  function collectCTAs(node, results, offsetY, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isCTA(node) && "width" in node && "height" in node) {
+      results.push({
+        node,
+        x: "x" in node ? node.x : 0,
+        y: "y" in node ? node.y : 0,
+        width: node.width,
+        height: node.height,
+        absoluteY: offsetY + ("y" in node ? node.y : 0)
+      });
+    }
+    if ("children" in node) {
+      const childOffset = offsetY + ("y" in node ? node.y : 0);
+      for (const child of node.children) {
+        collectCTAs(child, results, childOffset, skipLocked, skipHidden);
+      }
+    }
+  }
+  function collectFormFields(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isFormField(node)) {
+      let hasLabel = false;
+      const parent = node.parent;
+      if (parent && "children" in parent) {
+        for (const sibling of parent.children) {
+          if (sibling.type === "TEXT" && sibling.id !== node.id) {
+            hasLabel = true;
+            break;
+          }
+        }
+      }
+      results.push({ node, hasLabel });
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectFormFields(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function hasNodeMatching(node, pattern, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return false;
+    if (skipHidden && "visible" in node && !node.visible) return false;
+    if (pattern.test(node.name)) return true;
+    if ("children" in node) {
+      for (const child of node.children) {
+        if (hasNodeMatching(child, pattern, skipLocked, skipHidden)) return true;
+      }
+    }
+    return false;
+  }
+  function checkCTAPosition(frame, ctas, issues) {
+    if (ctas.length === 0) return false;
+    if (!("height" in frame)) return false;
+    const foldLine = frame.height * 0.7;
+    const aboveFold = ctas.some((cta) => cta.y + cta.height < foldLine);
+    if (!aboveFold) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: `No primary CTA visible above the fold (top 70% of frame). Move the main action higher for better conversion.`,
+        currentValue: `CTA at ${Math.round(ctas[0].y)}px, fold at ${Math.round(foldLine)}px`,
+        suggestions: ["Place primary CTA within top 70% of the viewport", "Add a secondary CTA near the top if main CTA must stay below"],
+        autoFixable: false
+      });
+    }
+    return aboveFold;
+  }
+  function checkCTAContrast(frame, ctas, issues) {
+    const bgColor = getBackgroundColor(frame);
+    if (!bgColor) return;
+    const bgLum = luminance(bgColor.r, bgColor.g, bgColor.b);
+    for (const cta of ctas) {
+      const ctaColor = getBackgroundColor(cta.node);
+      if (!ctaColor) continue;
+      const ctaLum = luminance(ctaColor.r, ctaColor.g, ctaColor.b);
+      const ratio = contrastRatio(bgLum, ctaLum);
+      if (ratio < 3) {
+        const ctaHex = rgbToHex(ctaColor.r, ctaColor.g, ctaColor.b);
+        const bgHex = rgbToHex(bgColor.r, bgColor.g, bgColor.b);
+        issues.push({
+          id: nextId6(),
+          type: "accessibility",
+          severity: "warning",
+          nodeId: cta.node.id,
+          nodeName: cta.node.name,
+          message: `CTA contrast ratio ${ratio.toFixed(1)}:1 (${ctaHex} on ${bgHex}) \u2014 too low. CTAs should stand out with \u22653:1 contrast against background.`,
+          currentValue: `${ratio.toFixed(1)}:1`,
+          suggestions: ["Increase CTA background contrast to at least 3:1", "Use a bolder accent color for the primary action"],
+          autoFixable: false
+        });
+      }
+    }
+  }
+  function checkFormFriction(frame, fields, issues) {
+    if (fields.length > 5) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: `${fields.length} form fields on one screen. More than 5 fields increases abandonment \u2014 consider splitting into steps or removing optional fields.`,
+        currentValue: `${fields.length} fields`,
+        suggestions: [
+          "Split into multi-step form with progress indicator",
+          'Remove optional fields or move to "Advanced" section',
+          "Expedia gained $12M/year by removing one field"
+        ],
+        autoFixable: false
+      });
+    }
+    const unlabeled = fields.filter((f) => !f.hasLabel);
+    if (unlabeled.length > 0) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: unlabeled[0].node.id,
+        nodeName: unlabeled[0].node.name,
+        message: `${unlabeled.length} form field${unlabeled.length === 1 ? "" : "s"} without visible labels. Labels improve completion rate and accessibility.`,
+        currentValue: `${unlabeled.length} unlabeled`,
+        suggestions: ["Add visible label text above or beside each input", "Don't rely on placeholder text alone as labels"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkProgressIndicator(frame, fields, issues, skipLocked, skipHidden) {
+    if (fields.length <= 3) return false;
+    const hasProgress = hasNodeMatching(frame, PROGRESS_RE, skipLocked, skipHidden);
+    if (!hasProgress && fields.length > 5) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: "Long form without progress indicator. A step counter or progress bar reduces perceived effort.",
+        suggestions: ['Add "Step 1 of 3" or a progress bar', "Show users how far they've come and what's left"],
+        autoFixable: false
+      });
+    }
+    return hasProgress;
+  }
+  function checkTrustSignals(frame, ctas, issues, skipLocked, skipHidden) {
+    if (ctas.length === 0) return;
+    const hasForm = hasNodeMatching(frame, FORM_FIELD_RE, skipLocked, skipHidden);
+    if (!hasForm) return;
+    const hasTrust = hasNodeMatching(frame, TRUST_RE, skipLocked, skipHidden);
+    if (!hasTrust) {
+      issues.push({
+        id: nextId6(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: "id" in frame ? frame.id : "",
+        nodeName: "name" in frame ? frame.name : "",
+        message: "Form with CTA but no trust signals (security badges, reviews, guarantees). Trust elements near CTAs increase conversion.",
+        suggestions: ["Add security badge or lock icon near submit button", "Show testimonials, ratings, or guarantees near the CTA"],
+        autoFixable: false
+      });
+    }
+  }
+  function checkConversion(nodes, options = {}) {
+    var _a, _b;
+    issueCounter6 = 0;
+    const issues = [];
+    const skipLocked = (_a = options.skipLocked) != null ? _a : true;
+    const skipHidden = (_b = options.skipHidden) != null ? _b : true;
+    let totalCTAs = 0;
+    let totalFields = 0;
+    let anyAboveFold = false;
+    let anyProgress = false;
+    let totalChecked = 0;
+    for (const node of nodes) {
+      const ctas = [];
+      collectCTAs(node, ctas, 0, skipLocked, skipHidden);
+      totalCTAs += ctas.length;
+      const fields = [];
+      collectFormFields(node, fields, skipLocked, skipHidden);
+      totalFields += fields.length;
+      if (ctas.length > 0) {
+        const above = checkCTAPosition(node, ctas, issues);
+        if (above) anyAboveFold = true;
+        checkCTAContrast(node, ctas, issues);
+        totalChecked += 2;
+      }
+      if (fields.length > 0) {
+        checkFormFriction(node, fields, issues);
+        const progress = checkProgressIndicator(node, fields, issues, skipLocked, skipHidden);
+        if (progress) anyProgress = true;
+        totalChecked += 2;
+      }
+      checkTrustSignals(node, ctas, issues, skipLocked, skipHidden);
+      totalChecked++;
+    }
+    return {
+      issues,
+      metrics: {
+        ctaCount: totalCTAs,
+        formFieldCount: totalFields,
+        ctaAboveFold: anyAboveFold,
+        hasProgressIndicator: anyProgress
+      },
+      summary: {
+        totalChecked,
+        passed: totalChecked - issues.length,
+        failed: issues.length
+      }
+    };
+  }
+  var issueCounter6, CTA_NAME_RE, FORM_FIELD_RE, PROGRESS_RE, TRUST_RE;
+  var init_conversion = __esm({
+    "src/lint/conversion.ts"() {
+      "use strict";
+      init_figma_helpers();
+      issueCounter6 = 0;
+      CTA_NAME_RE = /button|btn|cta|action|submit|primary/i;
+      FORM_FIELD_RE = /input|field|text.?area|select|dropdown|picker|combo|search|email|password|phone|number.?field/i;
+      PROGRESS_RE = /progress|step|stepper|breadcrumb|wizard|indicator|pagination/i;
+      TRUST_RE = /badge|trust|security|lock|shield|guarantee|verified|secure|ssl|certification|review|rating|star/i;
+    }
+  });
+
+  // src/lint/cognitive.ts
+  function nextId7() {
+    return `cog-${++issueCounter7}`;
+  }
+  function isNavContainer(node) {
+    return NAV_RE.test(node.name);
+  }
+  function isNavItem(node) {
+    return NAV_ITEM_RE.test(node.name);
+  }
+  function isCTA2(node) {
+    return CTA_RE.test(node.name);
+  }
+  function isHeading(node) {
+    return HEADING_RE.test(node.name);
+  }
+  function isDisabled(node) {
+    return DISABLED_RE.test(node.name);
+  }
+  function isIconOnly(node) {
+    if (!ICON_RE.test(node.name) && !CTA_RE.test(node.name)) return false;
+    if (!("children" in node)) return false;
+    const children = node.children;
+    const hasText = children.some((c) => c.type === "TEXT");
+    const hasIcon = children.some(
+      (c) => c.type === "VECTOR" || c.type === "BOOLEAN_OPERATION" || ICON_RE.test(c.name)
+    );
+    return hasIcon && !hasText;
+  }
+  function collectNavItems(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isNavItem(node)) {
+      results.push(node);
+      return;
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectNavItems(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function collectCTAs2(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isCTA2(node)) {
+      results.push(node);
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectCTAs2(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function extractHeadingLevel(name) {
+    const match = name.match(/h(\d)/i);
+    if (match) return parseInt(match[1], 10);
+    if (/title|headline/i.test(name)) return 1;
+    if (/subtitle|subhead/i.test(name)) return 2;
+    if (/heading/i.test(name)) return 2;
+    return null;
+  }
+  function collectHeadings(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isHeading(node)) {
+      const level = extractHeadingLevel(node.name);
+      if (level !== null) {
+        results.push({ node, level });
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectHeadings(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function measureNestingDepth(node, currentDepth, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return currentDepth;
+    if (skipHidden && "visible" in node && !node.visible) return currentDepth;
+    let max = currentDepth;
+    if ("children" in node) {
+      for (const child of node.children) {
+        const childDepth = measureNestingDepth(child, currentDepth + 1, skipLocked, skipHidden);
+        if (childDepth > max) max = childDepth;
+      }
+    }
+    return max;
+  }
+  function collectDisabledElements(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isDisabled(node) && ("opacity" in node && node.opacity < 1)) {
+      results.push(node);
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectDisabledElements(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function collectIconOnlyButtons(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isCTA2(node) && isIconOnly(node)) {
+      results.push(node);
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectIconOnlyButtons(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function checkNavItemOverload(frame, issues, skipLocked, skipHidden) {
+    const navContainers = [];
+    findNavContainers(frame, navContainers, skipLocked, skipHidden);
+    let totalNavItems = 0;
+    for (const nav of navContainers) {
+      const items = [];
+      collectNavItems(nav, items, skipLocked, skipHidden);
+      totalNavItems += items.length;
+      if (items.length > 7) {
+        issues.push({
+          id: nextId7(),
+          type: "accessibility",
+          severity: "warning",
+          nodeId: nav.id,
+          nodeName: nav.name,
+          message: `Navigation has ${items.length} items \u2014 Miller's Law suggests 7\xB12 is the working memory limit. Consider grouping or progressive disclosure.`,
+          currentValue: `${items.length} nav items`,
+          suggestions: [
+            "Group related items under expandable sections",
+            'Use "More" menu for less-used items',
+            "Limit primary navigation to 5-7 items"
+          ],
+          autoFixable: false
+        });
+      }
+    }
+    return totalNavItems;
+  }
+  function findNavContainers(node, results, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if (isNavContainer(node)) {
+      results.push(node);
+      return;
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        findNavContainers(child, results, skipLocked, skipHidden);
+      }
+    }
+  }
+  function checkCTAOverload(frame, issues, skipLocked, skipHidden) {
+    const ctas = [];
+    collectCTAs2(frame, ctas, skipLocked, skipHidden);
+    if (ctas.length > 5) {
+      issues.push({
+        id: nextId7(),
+        type: "accessibility",
+        severity: "warning",
+        nodeId: frame.id,
+        nodeName: frame.name,
+        message: `${ctas.length} CTAs/buttons on one screen \u2014 choice overload reduces decision-making ability (Hick's Law). Prioritize one primary action.`,
+        currentValue: `${ctas.length} CTAs`,
+        suggestions: [
+          "Establish clear primary/secondary/tertiary action hierarchy",
+          "Reduce to 1 primary CTA per viewport",
+          "Group related actions in a dropdown or overflow menu"
+        ],
+        autoFixable: false
+      });
+    }
+    return ctas.length;
+  }
+  function checkHeadingHierarchy(frame, issues, skipLocked, skipHidden) {
+    const headings = [];
+    collectHeadings(frame, headings, skipLocked, skipHidden);
+    if (headings.length < 2) return headings.map((h) => h.level);
+    const sorted = headings.sort((a, b) => {
+      const aY = "y" in a.node ? a.node.y : 0;
+      const bY = "y" in b.node ? b.node.y : 0;
+      return aY - bY;
+    });
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1].level;
+      const curr = sorted[i].level;
+      if (curr > prev + 1) {
+        issues.push({
+          id: nextId7(),
+          type: "accessibility",
+          severity: "info",
+          nodeId: sorted[i].node.id,
+          nodeName: sorted[i].node.name,
+          message: `Heading hierarchy gap: jumps from level ${prev} to level ${curr}. Screen readers and users rely on sequential heading structure.`,
+          currentValue: `h${prev} \u2192 h${curr}`,
+          suggestions: [
+            `Add an h${prev + 1} between these levels`,
+            "Ensure headings follow a logical descending order"
+          ],
+          autoFixable: false
+        });
+      }
+    }
+    return sorted.map((h) => h.level);
+  }
+  function checkDisabledWithoutReason(frame, issues, skipLocked, skipHidden) {
+    var _a;
+    const disabled = [];
+    collectDisabledElements(frame, disabled, skipLocked, skipHidden);
+    for (const node of disabled) {
+      const parent = node.parent;
+      let hasExplanation = false;
+      if (parent && "children" in parent) {
+        for (const sibling of parent.children) {
+          if (sibling.type === "TEXT" && sibling.id !== node.id) {
+            const text = ((_a = sibling.characters) == null ? void 0 : _a.toLowerCase()) || "";
+            if (text.includes("required") || text.includes("complete") || text.includes("fill") || text.includes("select") || text.includes("first")) {
+              hasExplanation = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!hasExplanation) {
+        issues.push({
+          id: nextId7(),
+          type: "accessibility",
+          severity: "info",
+          nodeId: node.id,
+          nodeName: node.name,
+          message: `Disabled element "${node.name}" without visible explanation. Users should understand WHY an action is unavailable and how to enable it.`,
+          suggestions: [
+            "Add helper text explaining what needs to happen first",
+            "Use a tooltip on hover explaining the disabled state",
+            'Show a brief inline message (e.g., "Complete all fields to continue")'
+          ],
+          autoFixable: false
+        });
+      }
+    }
+  }
+  function checkIconOnlyButtons(frame, issues, skipLocked, skipHidden) {
+    const iconButtons = [];
+    collectIconOnlyButtons(frame, iconButtons, skipLocked, skipHidden);
+    if (iconButtons.length > 3) {
+      issues.push({
+        id: nextId7(),
+        type: "accessibility",
+        severity: "info",
+        nodeId: frame.id,
+        nodeName: frame.name,
+        message: `${iconButtons.length} icon-only buttons without text labels. Icons alone are ambiguous \u2014 add labels or ensure tooltips are present.`,
+        currentValue: `${iconButtons.length} icon-only`,
+        suggestions: [
+          "Add visible text labels to icon buttons",
+          "Add tooltips that appear on hover/focus",
+          "Use aria-label for accessibility (ensure design indicates this)"
+        ],
+        autoFixable: false
+      });
+    }
+    return iconButtons.length;
+  }
+  function checkCognitive(nodes, options = {}) {
+    var _a, _b;
+    issueCounter7 = 0;
+    const issues = [];
+    const skipLocked = (_a = options.skipLocked) != null ? _a : true;
+    const skipHidden = (_b = options.skipHidden) != null ? _b : true;
+    let totalNavItems = 0;
+    let totalCTAs = 0;
+    let maxDepth = 0;
+    let allHeadingLevels = [];
+    let totalIconOnly = 0;
+    let totalChecked = 0;
+    for (const node of nodes) {
+      totalNavItems += checkNavItemOverload(node, issues, skipLocked, skipHidden);
+      totalChecked++;
+      totalCTAs += checkCTAOverload(node, issues, skipLocked, skipHidden);
+      totalChecked++;
+      const levels = checkHeadingHierarchy(node, issues, skipLocked, skipHidden);
+      allHeadingLevels = [...allHeadingLevels, ...levels];
+      totalChecked++;
+      checkDisabledWithoutReason(node, issues, skipLocked, skipHidden);
+      totalChecked++;
+      totalIconOnly += checkIconOnlyButtons(node, issues, skipLocked, skipHidden);
+      totalChecked++;
+      const depth = measureNestingDepth(node, 0, skipLocked, skipHidden);
+      if (depth > maxDepth) maxDepth = depth;
+    }
+    return {
+      issues,
+      metrics: {
+        navItemCount: totalNavItems,
+        ctaCount: totalCTAs,
+        maxNestingDepth: maxDepth,
+        headingLevels: [...new Set(allHeadingLevels)].sort(),
+        iconOnlyButtons: totalIconOnly
+      },
+      summary: {
+        totalChecked,
+        passed: totalChecked - issues.length,
+        failed: issues.length
+      }
+    };
+  }
+  var issueCounter7, NAV_RE, NAV_ITEM_RE, CTA_RE, HEADING_RE, DISABLED_RE, ICON_RE;
+  var init_cognitive = __esm({
+    "src/lint/cognitive.ts"() {
+      "use strict";
+      issueCounter7 = 0;
+      NAV_RE = /nav|menu|sidebar|tab.?bar|bottom.?bar|header.?nav|navigation|top.?bar/i;
+      NAV_ITEM_RE = /nav.?item|menu.?item|tab(?!le)|link/i;
+      CTA_RE = /button|btn|cta|action|submit|primary/i;
+      HEADING_RE = /heading|title|h[1-6]|headline/i;
+      DISABLED_RE = /disabled|inactive|dimmed|greyed/i;
+      ICON_RE = /icon|ico|svg|glyph/i;
+    }
+  });
+
+  // src/core/design-lint.ts
+  var design_lint_exports = {};
+  __export(design_lint_exports, {
+    DEFAULT_LINT_SETTINGS: () => DEFAULT_LINT_SETTINGS,
+    clearIgnored: () => clearIgnored,
+    findNodesWithSameValue: () => findNodesWithSameValue,
+    getIgnoredState: () => getIgnoredState,
+    ignoreAllOfType: () => ignoreAllOfType,
+    ignoreError: () => ignoreError,
+    ignoreNode: () => ignoreNode,
+    lintSelection: () => lintSelection,
+    restoreIgnoredState: () => restoreIgnoredState,
+    runDesignLint: () => runDesignLint
+  });
+  function errorKey(nodeId, errorType, value) {
+    if (value) return `${nodeId}::${errorType}::${value}`;
+    return `${nodeId}::${errorType}`;
+  }
+  function ignoreNode(nodeId) {
+    ignoredNodeIds.add(nodeId);
+  }
+  function ignoreError(nodeId, errorType, value) {
+    ignoredErrorKeys.add(errorKey(nodeId, errorType, value));
+  }
+  function ignoreAllOfType(errors, errorType) {
+    for (const err of errors) {
+      if (err.errorType === errorType) {
+        ignoredErrorKeys.add(errorKey(err.nodeId, err.errorType));
+      }
+    }
+  }
+  function clearIgnored() {
+    ignoredNodeIds.clear();
+    ignoredErrorKeys.clear();
+  }
+  function getIgnoredState() {
+    return {
+      nodeIds: Array.from(ignoredNodeIds),
+      errorKeys: Array.from(ignoredErrorKeys)
+    };
+  }
+  function restoreIgnoredState(state) {
+    ignoredNodeIds = new Set(state.nodeIds);
+    ignoredErrorKeys = new Set(state.errorKeys);
+  }
+  function determineFill(paint) {
+    if (paint.type === "SOLID") {
+      const { r, g, b } = paint.color;
+      const hex = rgbToHex(r, g, b);
+      const opacity = paint.opacity !== void 0 && paint.opacity < 1 ? ` (${Math.round(paint.opacity * 100)}%)` : "";
+      return hex + opacity;
+    }
+    if (paint.type === "IMAGE") return "Image fill";
+    if (paint.type === "VIDEO") return "Video fill";
+    if (paint.type.includes("GRADIENT")) return `${paint.type.replace("GRADIENT_", "").toLowerCase()} gradient`;
+    return paint.type;
+  }
+  function hasBoundVariable(node, property) {
+    try {
+      if ("boundVariables" in node) {
+        const bound = node.boundVariables;
+        if (bound && bound[property]) return true;
+      }
+    } catch (e) {
+    }
+    return false;
+  }
+  function checkFills(node, errors, path) {
+    if (!("fills" in node)) return;
+    const fills = node.fills;
+    if (fills === figma.mixed || !Array.isArray(fills)) return;
+    const visibleFills = fills.filter((f) => f.visible !== false);
+    if (visibleFills.length === 0) return;
+    if (hasBoundVariable(node, "fills")) return;
+    if ("fillStyleId" in node) {
+      const styleId = node.fillStyleId;
+      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
+    }
+    for (const fill of visibleFills) {
+      try {
+        const bv = fill.boundVariables;
+        if (bv && bv.color) continue;
+      } catch (e) {
+      }
+      const value = determineFill(fill);
+      errors.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        errorType: "fill",
+        message: `Missing fill style: ${value}`,
+        value,
+        path
+      });
+    }
+  }
+  function checkStrokes(node, errors, path) {
+    if (!("strokes" in node)) return;
+    const strokes = node.strokes;
+    if (!Array.isArray(strokes)) return;
+    const visibleStrokes = strokes.filter((s) => s.visible !== false);
+    if (visibleStrokes.length === 0) return;
+    if (hasBoundVariable(node, "strokes")) return;
+    if ("strokeStyleId" in node) {
+      const styleId = node.strokeStyleId;
+      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
+    }
+    for (const stroke of visibleStrokes) {
+      const value = determineFill(stroke);
+      const weight = "strokeWeight" in node ? ` (${node.strokeWeight}px)` : "";
+      errors.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        errorType: "stroke",
+        message: `Missing stroke style: ${value}${weight}`,
+        value: value + weight,
+        path
+      });
+    }
+  }
+  function checkEffects(node, errors, path) {
+    if (!("effects" in node)) return;
+    const effects = node.effects;
+    if (!Array.isArray(effects) || effects.length === 0) return;
+    const visibleEffects = effects.filter((e) => e.visible !== false);
+    if (visibleEffects.length === 0) return;
+    if ("effectStyleId" in node) {
+      const styleId = node.effectStyleId;
+      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
+    }
+    const descriptions = visibleEffects.map((e) => {
+      const parts = [e.type.replace(/_/g, " ").toLowerCase()];
+      if ("radius" in e) parts.push(`r:${e.radius}`);
+      if ("color" in e && e.color) {
+        const c = e.color;
+        parts.push(rgbToHex(c.r, c.g, c.b));
+      }
+      return parts.join(" ");
+    });
+    errors.push({
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      errorType: "effect",
+      message: `Missing effect style: ${descriptions.join(", ")}`,
+      value: descriptions.join(", "),
+      path
+    });
+  }
+  function checkTextStyle(node, errors, path) {
+    if ("textStyleId" in node) {
+      const styleId = node.textStyleId;
+      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
+    }
+    const fontName = node.fontName !== figma.mixed ? node.fontName : null;
+    const fontSize = node.fontSize !== figma.mixed ? node.fontSize : null;
+    const parts = [];
+    if (fontName) parts.push(`${fontName.family} ${fontName.style}`);
+    if (fontSize) parts.push(`${fontSize}px`);
+    const value = parts.join(" / ") || "unknown text style";
+    errors.push({
+      nodeId: node.id,
+      nodeName: node.name,
+      nodeType: node.type,
+      errorType: "text",
+      message: `Missing text style: ${value}`,
+      value,
+      path
+    });
+  }
+  function checkRadius(node, errors, path, allowedRadii) {
+    if (!("cornerRadius" in node)) return;
+    if (hasBoundVariable(node, "topLeftRadius") || hasBoundVariable(node, "cornerRadius")) return;
+    const cr = node.cornerRadius;
+    if (cr === figma.mixed) {
+      const corners = [
+        node.topLeftRadius,
+        node.topRightRadius,
+        node.bottomLeftRadius,
+        node.bottomRightRadius
+      ].filter((v) => v !== void 0 && v !== null);
+      for (const c of corners) {
+        if (!allowedRadii.includes(c)) {
+          errors.push({
+            nodeId: node.id,
+            nodeName: node.name,
+            nodeType: node.type,
+            errorType: "radius",
+            message: `Non-standard border radius: ${c}px (allowed: ${allowedRadii.join(", ")})`,
+            value: `${c}px`,
+            path
+          });
+          break;
+        }
+      }
+      return;
+    }
+    if (typeof cr === "number" && cr > 0 && !allowedRadii.includes(cr)) {
+      errors.push({
+        nodeId: node.id,
+        nodeName: node.name,
+        nodeType: node.type,
+        errorType: "radius",
+        message: `Non-standard border radius: ${cr}px (allowed: ${allowedRadii.join(", ")})`,
+        value: `${cr}px`,
+        path
+      });
+    }
+  }
+  function lintNode(node, settings, errors, path) {
+    if (node.type === "GROUP" || node.type === "SLICE" || node.type === "CONNECTOR") return;
+    if (node.type === "COMPONENT_SET") return;
+    switch (node.type) {
+      case "TEXT":
+        if (settings.checkTextStyles) checkTextStyle(node, errors, path);
+        if (settings.checkFills) checkFills(node, errors, path);
+        break;
+      case "FRAME":
+      case "SECTION":
+        if (settings.checkFills) checkFills(node, errors, path);
+        if (settings.checkStrokes) checkStrokes(node, errors, path);
+        if (settings.checkEffects) checkEffects(node, errors, path);
+        if (settings.checkRadius) checkRadius(node, errors, path, settings.allowedRadii);
+        break;
+      case "RECTANGLE":
+      case "COMPONENT":
+      case "INSTANCE":
+        if (settings.checkFills) checkFills(node, errors, path);
+        if (settings.checkStrokes) checkStrokes(node, errors, path);
+        if (settings.checkEffects) checkEffects(node, errors, path);
+        if (settings.checkRadius) checkRadius(node, errors, path, settings.allowedRadii);
+        break;
+      case "ELLIPSE":
+      case "POLYGON":
+      case "STAR":
+      case "VECTOR":
+      case "LINE":
+      case "BOOLEAN_OPERATION":
+        if (settings.checkFills) checkFills(node, errors, path);
+        if (settings.checkStrokes) checkStrokes(node, errors, path);
+        if (settings.checkEffects) checkEffects(node, errors, path);
+        break;
+    }
+  }
+  function traverseAndLint(node, settings, errors, parentPath, parentLocked) {
+    let count = 0;
+    const isLocked = parentLocked || "locked" in node && node.locked;
+    const isHidden = "visible" in node && !node.visible;
+    if (settings.skipLockedLayers && isLocked) return 0;
+    if (settings.skipHiddenLayers && isHidden) return 0;
+    const path = parentPath ? `${parentPath} > ${node.name}` : node.name;
+    count++;
+    if (!ignoredNodeIds.has(node.id)) {
+      const preLen = errors.length;
+      lintNode(node, settings, errors, path);
+      for (let i = errors.length - 1; i >= preLen; i--) {
+        const err = errors[i];
+        if (ignoredErrorKeys.has(errorKey(err.nodeId, err.errorType)) || ignoredErrorKeys.has(errorKey(err.nodeId, err.errorType, err.value))) {
+          errors.splice(i, 1);
+        }
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        count += traverseAndLint(child, settings, errors, path, isLocked);
+      }
+    }
+    return count;
+  }
+  function matchesIgnorePattern(name, patterns) {
+    for (const pattern of patterns) {
+      const regex = new RegExp(
+        "^" + pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$"
+      );
+      if (regex.test(name)) return true;
+    }
+    return false;
+  }
+  function runDesignLint(nodes, settings = DEFAULT_LINT_SETTINGS) {
+    var _a, _b;
+    const errors = [];
+    let totalNodes = 0;
+    const ignorePatterns = settings.ignorePatterns || [];
+    const severityOverrides = settings.severityOverrides || {};
+    for (const node of nodes) {
+      totalNodes += traverseAndLint(node, settings, errors, "", false);
+    }
+    const skipOpts = {
+      skipLocked: settings.skipLockedLayers,
+      skipHidden: settings.skipHiddenLayers,
+      scale: settings.spacingScale
+    };
+    if (settings.checkSpacing && severityOverrides.spacing !== "off") {
+      const spacingResult = checkSpacing(nodes, skipOpts);
+      for (const issue of spacingResult.issues) {
+        const val = issue.currentValue || "";
+        if (ignoredNodeIds.has(issue.nodeId)) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "spacing"))) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "spacing", val))) continue;
+        if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "spacing",
+          message: issue.message,
+          value: val,
+          path: issue.nodeName,
+          property: (_b = (_a = issue.fixAction) == null ? void 0 : _a.params) == null ? void 0 : _b.property
+        });
+      }
+    }
+    if (settings.checkAutoLayout && severityOverrides.autoLayout !== "off") {
+      const autoLayoutResult = checkAutoLayout(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+      for (const issue of autoLayoutResult.issues) {
+        if (ignoredNodeIds.has(issue.nodeId)) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "autoLayout"))) continue;
+        if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "autoLayout",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName
+        });
+      }
+    }
+    if (settings.checkAccessibility && severityOverrides.accessibility !== "off") {
+      const a11yResult = checkAccessibility(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+      for (const issue of a11yResult.issues) {
+        if (ignoredNodeIds.has(issue.nodeId)) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "accessibility"))) continue;
+        if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "accessibility",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName,
+          severity: issue.severity
+        });
+      }
+    }
+    if (settings.checkVisualQuality && severityOverrides.visualQuality !== "off") {
+      const vqResult = checkVisualQuality(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+      for (const issue of vqResult.issues) {
+        if (ignoredNodeIds.has(issue.nodeId)) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "visualQuality"))) continue;
+        if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "visualQuality",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName,
+          severity: issue.severity
+        });
+      }
+    }
+    if (settings.checkMicrocopy && severityOverrides.microcopy !== "off") {
+      const mcResult = checkMicrocopy(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+      for (const issue of mcResult.issues) {
+        if (ignoredNodeIds.has(issue.nodeId)) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "microcopy"))) continue;
+        if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "TEXT",
+          errorType: "microcopy",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName,
+          severity: issue.severity
+        });
+      }
+    }
+    if (settings.checkConversion && severityOverrides.conversion !== "off") {
+      const convResult = checkConversion(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+      for (const issue of convResult.issues) {
+        if (ignoredNodeIds.has(issue.nodeId)) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "conversion"))) continue;
+        if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "conversion",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName,
+          severity: issue.severity
+        });
+      }
+    }
+    if (settings.checkCognitive && severityOverrides.cognitive !== "off") {
+      const cogResult = checkCognitive(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+      for (const issue of cogResult.issues) {
+        if (ignoredNodeIds.has(issue.nodeId)) continue;
+        if (ignoredErrorKeys.has(errorKey(issue.nodeId, "cognitive"))) continue;
+        if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+        errors.push({
+          nodeId: issue.nodeId,
+          nodeName: issue.nodeName,
+          nodeType: "FRAME",
+          errorType: "cognitive",
+          message: issue.message,
+          value: issue.currentValue || "",
+          path: issue.nodeName,
+          severity: issue.severity
+        });
+      }
+    }
+    const filteredErrors = errors.filter((err) => severityOverrides[err.errorType] !== "off");
+    const finalErrors = ignorePatterns.length > 0 ? filteredErrors.filter((err) => !matchesIgnorePattern(err.nodeName, ignorePatterns)) : filteredErrors;
+    for (const err of finalErrors) {
+      const override = severityOverrides[err.errorType];
+      if (override && override !== "off") {
+        err.severity = override;
+      } else if (!err.severity) {
+        switch (err.errorType) {
+          case "fill":
+          case "stroke":
+          case "effect":
+          case "text":
+          case "spacing":
+            err.severity = "warning";
+            break;
+          case "radius":
+          case "autoLayout":
+            err.severity = "info";
+            break;
+          case "accessibility":
+            err.severity = "critical";
+            break;
+          case "visualQuality":
+            err.severity = "warning";
+            break;
+          case "microcopy":
+            err.severity = "info";
+            break;
+          case "conversion":
+            err.severity = "warning";
+            break;
+          case "cognitive":
+            err.severity = "info";
+            break;
+        }
+      }
+    }
+    const nodesWithErrors = new Set(finalErrors.map((e) => e.nodeId)).size;
+    const byType = { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0, conversion: 0, cognitive: 0 };
+    for (const err of finalErrors) {
+      byType[err.errorType]++;
+    }
+    const summary = {
+      totalErrors: finalErrors.length,
+      byType,
+      totalNodes,
+      nodesWithErrors
+    };
+    return {
+      errors: finalErrors,
+      ignoredNodeIds: Array.from(ignoredNodeIds),
+      ignoredErrorKeys: Array.from(ignoredErrorKeys),
+      summary
+    };
+  }
+  function lintSelection(settings) {
+    const selection = figma.currentPage.selection;
+    if (selection.length === 0) {
+      return {
+        errors: [],
+        ignoredNodeIds: [],
+        ignoredErrorKeys: [],
+        summary: { totalErrors: 0, byType: { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0, conversion: 0, cognitive: 0 }, totalNodes: 0, nodesWithErrors: 0 }
+      };
+    }
+    return runDesignLint(selection, settings);
+  }
+  function findNodesWithSameValue(rootNodes, errorType, value, settings = DEFAULT_LINT_SETTINGS) {
+    const result = runDesignLint(rootNodes, settings);
+    return result.errors.filter((e) => e.errorType === errorType && e.value === value);
+  }
+  var DEFAULT_LINT_SETTINGS, ignoredNodeIds, ignoredErrorKeys;
+  var init_design_lint = __esm({
+    "src/core/design-lint.ts"() {
+      "use strict";
+      init_figma_helpers();
+      init_spacing();
+      init_auto_layout();
+      init_accessibility();
+      init_visual_quality();
+      init_microcopy();
+      init_conversion();
+      init_cognitive();
+      DEFAULT_LINT_SETTINGS = {
+        checkFills: true,
+        checkStrokes: true,
+        checkEffects: true,
+        checkTextStyles: true,
+        checkRadius: true,
+        checkSpacing: true,
+        checkAutoLayout: true,
+        checkAccessibility: true,
+        checkVisualQuality: true,
+        checkMicrocopy: true,
+        checkConversion: true,
+        checkCognitive: true,
+        allowedRadii: [0, 2, 4, 8, 12, 16, 24, 32],
+        skipLockedLayers: true,
+        skipHiddenLayers: true
+      };
+      ignoredNodeIds = /* @__PURE__ */ new Set();
+      ignoredErrorKeys = /* @__PURE__ */ new Set();
+    }
+  });
+
   // src/fix/apply-style.ts
   var apply_style_exports = {};
   __export(apply_style_exports, {
@@ -159,120 +2432,14 @@
     }
   });
 
-  // src/utils/figma-helpers.ts
-  function isValidNodeForAnalysis(node) {
-    const validTypes = ["FRAME", "COMPONENT", "COMPONENT_SET", "INSTANCE", "GROUP"];
-    if (!validTypes.includes(node.type)) {
-      return false;
-    }
-    if (node.type === "COMPONENT_SET") {
-      return true;
-    }
-    return true;
-  }
-  function rgbToHex(r, g, b) {
-    const toHex = (n) => {
-      const hex = Math.round(n * 255).toString(16);
-      return hex.length === 1 ? "0" + hex : hex;
-    };
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
-  async function getVariableName(variableId) {
-    try {
-      const variable = await figma.variables.getVariableByIdAsync(variableId);
-      return variable ? variable.name : null;
-    } catch (error) {
-      console.warn("Could not access variable:", variableId, error);
-      return null;
-    }
-  }
-  async function getVariableValue(variableId, node) {
-    try {
-      const variable = await figma.variables.getVariableByIdAsync(variableId);
-      if (!variable) return null;
-      if (node && variable.resolveForConsumer) {
-        try {
-          const resolved = variable.resolveForConsumer(node);
-          if (resolved && typeof resolved.value === "object" && "r" in resolved.value) {
-            const color = resolved.value;
-            return rgbToHex(color.r, color.g, color.b);
-          } else if (resolved && resolved.value !== void 0) {
-            return String(resolved.value);
-          }
-        } catch (resolveError) {
-          console.warn("Could not resolve variable value:", resolveError);
-        }
-      }
-      return variable.name;
-    } catch (error) {
-      console.warn("Could not access variable:", variableId, error);
-      return null;
-    }
-  }
-  function sendMessageToUI(type, data) {
-    try {
-      figma.ui.postMessage({ type, data });
-    } catch (error) {
-      console.error("Failed to send message to UI:", error);
-    }
-  }
-  function getAllChildNodes(node) {
-    const nodes = [node];
-    if ("children" in node) {
-      for (const child of node.children) {
-        nodes.push(...getAllChildNodes(child));
-      }
-    }
-    return nodes;
-  }
-  function extractTextContent(node) {
-    const textContent = [];
-    if (node.type === "TEXT") {
-      const textNode = node;
-      if (textNode.characters) {
-        textContent.push(textNode.characters);
-      }
-    }
-    if ("children" in node) {
-      for (const child of node.children) {
-        textContent.push(...extractTextContent(child));
-      }
-    }
-    return textContent;
-  }
-  function getNodePath(node) {
-    var _a;
-    const path = [];
-    let currentNode = node;
-    while (currentNode && currentNode.type !== "DOCUMENT") {
-      if (currentNode.type === "PAGE") {
-        break;
-      }
-      if (currentNode.type === "COMPONENT" && ((_a = currentNode.parent) == null ? void 0 : _a.type) === "COMPONENT_SET") {
-        path.unshift(`${currentNode.name}`);
-      } else {
-        path.unshift(currentNode.name);
-      }
-      currentNode = currentNode.parent;
-    }
-    return path.join(" \u2192 ");
-  }
-  function getDebugContext(node) {
-    var _a, _b;
-    const path = getNodePath(node);
-    let description = `Found in "${node.name}"`;
-    if (((_a = node.parent) == null ? void 0 : _a.type) === "COMPONENT_SET" || node.parent && ((_b = node.parent.parent) == null ? void 0 : _b.type) === "COMPONENT_SET") {
-      description = `Found in variant: "${node.name}"`;
-    } else if (path.includes("\u2192")) {
-      const pathParts = path.split(" \u2192 ");
-      if (pathParts.length > 1) {
-        description = `Found in "${pathParts[pathParts.length - 1]}" (${pathParts[pathParts.length - 2]})`;
-      }
-    }
-    return { path, description };
-  }
+  // src/ui/message-handler.ts
+  init_figma_helpers();
+
+  // src/core/component-analyzer.ts
+  init_figma_helpers();
 
   // src/core/token-analyzer.ts
+  init_figma_helpers();
   function hasDefaultVariantFrameStyles(node) {
     var _a;
     let currentNode = node;
@@ -309,7 +2476,7 @@
     if (hasAllDefaults) {
       console.log(`\u{1F3AF} [FILTER] Detected default variant frame styles in ${node.name} - filtering out`);
       console.log(`   Type: ${node.type}, Parent: ${(_a = node.parent) == null ? void 0 : _a.type}`);
-      console.log(`   Radius: ${node.cornerRadius}, Weight: ${node.strokeWeight}, Color: ${strokes.length > 0 ? rgbToHex(strokes[0].color.r, strokes[0].color.g, strokes[0].color.b) : "none"}`);
+      console.log(`   Radius: ${String(node.cornerRadius)}, Weight: ${String(node.strokeWeight)}, Color: ${strokes.length > 0 && strokes[0].type === "SOLID" ? rgbToHex(strokes[0].color.r, strokes[0].color.g, strokes[0].color.b) : "none"}`);
       console.log(`   Padding: L=${node.paddingLeft}, R=${node.paddingRight}, T=${node.paddingTop}, B=${node.paddingBottom}`);
     }
     return hasAllDefaults;
@@ -1141,7 +3308,6 @@ Focus on creating a comprehensive DESIGN analysis that helps designers build sca
       let escapeNext = false;
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
         const line = lines[lineIndex];
-        let shouldIncludeLine = true;
         for (let i = 0; i < line.length; i++) {
           const char = line[i];
           if (escapeNext) {
@@ -2781,520 +4947,8 @@ Focus on creating a comprehensive DESIGN analysis that helps designers build sca
     return str.replace(/([a-z])([A-Z])/g, "$1-$2").replace(/[\s_]+/g, "-").replace(/[^a-zA-Z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase();
   }
 
-  // src/lint/types.ts
-  var SPACING_SCALE = [0, 2, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96];
-  function findClosestSpacingValues(value) {
-    if (SPACING_SCALE.includes(value)) return [];
-    const sorted = [...SPACING_SCALE].map((v) => ({ v, diff: Math.abs(v - value) })).sort((a, b) => a.diff - b.diff);
-    const closest = [];
-    for (const s of sorted) {
-      if (closest.length >= 2) break;
-      if (!closest.includes(s.v)) closest.push(s.v);
-    }
-    return closest.sort((a, b) => a - b);
-  }
-
-  // src/lint/spacing.ts
-  var issueCounter = 0;
-  function nextId() {
-    return `spacing-${++issueCounter}`;
-  }
-  function isValidSpacing(value) {
-    return SPACING_SCALE.includes(value);
-  }
-  function spacingLabel(property) {
-    const map = {
-      itemSpacing: "Gap",
-      paddingTop: "Padding Top",
-      paddingBottom: "Padding Bottom",
-      paddingLeft: "Padding Left",
-      paddingRight: "Padding Right",
-      counterAxisSpacing: "Counter-axis Gap"
-    };
-    return map[property] || property;
-  }
-  function checkFrameSpacing(node, issues) {
-    var _a;
-    if (node.layoutMode === "NONE") return 0;
-    let checked = 0;
-    const spacingProperties = [
-      { prop: "itemSpacing", value: node.itemSpacing },
-      { prop: "paddingTop", value: node.paddingTop },
-      { prop: "paddingBottom", value: node.paddingBottom },
-      { prop: "paddingLeft", value: node.paddingLeft },
-      { prop: "paddingRight", value: node.paddingRight }
-    ];
-    if ("counterAxisSpacing" in node && typeof node.counterAxisSpacing === "number") {
-      spacingProperties.push({
-        prop: "counterAxisSpacing",
-        value: node.counterAxisSpacing
-      });
-    }
-    for (const { prop, value } of spacingProperties) {
-      checked++;
-      if (!isValidSpacing(value)) {
-        const suggestions = findClosestSpacingValues(value);
-        issues.push({
-          id: nextId(),
-          type: "spacing",
-          severity: "warning",
-          nodeId: node.id,
-          nodeName: node.name,
-          message: `${spacingLabel(prop)} is ${value}px \u2014 not in spacing scale`,
-          currentValue: `${value}px`,
-          suggestions: suggestions.map((s) => `${s}px`),
-          autoFixable: true,
-          fixAction: {
-            type: "fixSpacing",
-            params: {
-              nodeId: node.id,
-              property: prop,
-              currentValue: value,
-              suggestedValue: (_a = suggestions[0]) != null ? _a : value
-            }
-          }
-        });
-      }
-    }
-    return checked;
-  }
-  function traverseForSpacing(node, issues, skipLocked, skipHidden, parentLocked) {
-    const isLocked = parentLocked || "locked" in node && node.locked;
-    const isHidden = "visible" in node && !node.visible;
-    if (skipLocked && isLocked) return { checked: 0, passed: 0 };
-    if (skipHidden && isHidden) return { checked: 0, passed: 0 };
-    let checked = 0;
-    let passed = 0;
-    if (node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE") {
-      const preLen = issues.length;
-      const count = checkFrameSpacing(node, issues);
-      checked += count;
-      passed += count - (issues.length - preLen);
-    }
-    if ("children" in node) {
-      for (const child of node.children) {
-        const sub = traverseForSpacing(child, issues, skipLocked, skipHidden, isLocked);
-        checked += sub.checked;
-        passed += sub.passed;
-      }
-    }
-    return { checked, passed };
-  }
-  function checkSpacing(nodes, options = {}) {
-    const { skipLocked = true, skipHidden = true } = options;
-    issueCounter = 0;
-    const issues = [];
-    let totalChecked = 0;
-    let totalPassed = 0;
-    for (const node of nodes) {
-      const { checked, passed } = traverseForSpacing(node, issues, skipLocked, skipHidden, false);
-      totalChecked += checked;
-      totalPassed += passed;
-    }
-    return {
-      issues,
-      summary: {
-        totalChecked,
-        passed: totalPassed,
-        failed: issues.length
-      }
-    };
-  }
-
-  // src/lint/auto-layout.ts
-  var issueCounter2 = 0;
-  function nextId2() {
-    return `autolayout-${++issueCounter2}`;
-  }
-  function traverseForAutoLayout(node, issues, skipLocked, skipHidden, parentLocked) {
-    const isLocked = parentLocked || "locked" in node && node.locked;
-    const isHidden = "visible" in node && !node.visible;
-    if (skipLocked && isLocked) return { totalFrames: 0, withAutoLayout: 0 };
-    if (skipHidden && isHidden) return { totalFrames: 0, withAutoLayout: 0 };
-    let totalFrames = 0;
-    let withAutoLayout = 0;
-    const isFrameLike = node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE";
-    if (isFrameLike && "children" in node) {
-      const children = node.children;
-      if (children.length >= 2) {
-        totalFrames++;
-        const frameNode = node;
-        if (frameNode.layoutMode !== "NONE") {
-          withAutoLayout++;
-        } else {
-          issues.push({
-            id: nextId2(),
-            type: "autoLayout",
-            severity: "warning",
-            nodeId: node.id,
-            nodeName: node.name,
-            message: `Frame "${node.name}" has ${children.length} children but no Auto Layout`,
-            currentValue: "No Auto Layout",
-            suggestions: ["HORIZONTAL", "VERTICAL"],
-            autoFixable: false
-            // Converting to auto-layout can break designs
-          });
-        }
-      }
-    }
-    if ("children" in node) {
-      for (const child of node.children) {
-        const sub = traverseForAutoLayout(child, issues, skipLocked, skipHidden, isLocked);
-        totalFrames += sub.totalFrames;
-        withAutoLayout += sub.withAutoLayout;
-      }
-    }
-    return { totalFrames, withAutoLayout };
-  }
-  function checkAutoLayout(nodes, options = {}) {
-    const { skipLocked = true, skipHidden = true } = options;
-    issueCounter2 = 0;
-    const issues = [];
-    let totalFrames = 0;
-    let withAutoLayout = 0;
-    for (const node of nodes) {
-      const sub = traverseForAutoLayout(node, issues, skipLocked, skipHidden, false);
-      totalFrames += sub.totalFrames;
-      withAutoLayout += sub.withAutoLayout;
-    }
-    const withoutAutoLayout = totalFrames - withAutoLayout;
-    const percentage = totalFrames > 0 ? Math.round(withAutoLayout / totalFrames * 100) : 100;
-    return {
-      issues,
-      summary: {
-        totalFrames,
-        withAutoLayout,
-        withoutAutoLayout,
-        percentage
-      }
-    };
-  }
-
-  // src/core/design-lint.ts
-  var DEFAULT_LINT_SETTINGS = {
-    checkFills: true,
-    checkStrokes: true,
-    checkEffects: true,
-    checkTextStyles: true,
-    checkRadius: true,
-    checkSpacing: true,
-    checkAutoLayout: true,
-    allowedRadii: [0, 2, 4, 8, 12, 16, 24, 32],
-    skipLockedLayers: true,
-    skipHiddenLayers: true
-  };
-  var ignoredNodeIds = /* @__PURE__ */ new Set();
-  var ignoredErrorKeys = /* @__PURE__ */ new Set();
-  function errorKey(nodeId, errorType) {
-    return `${nodeId}::${errorType}`;
-  }
-  function ignoreNode(nodeId) {
-    ignoredNodeIds.add(nodeId);
-  }
-  function ignoreError(nodeId, errorType) {
-    ignoredErrorKeys.add(errorKey(nodeId, errorType));
-  }
-  function ignoreAllOfType(errors, errorType) {
-    for (const err of errors) {
-      if (err.errorType === errorType) {
-        ignoredErrorKeys.add(errorKey(err.nodeId, err.errorType));
-      }
-    }
-  }
-  function clearIgnored() {
-    ignoredNodeIds.clear();
-    ignoredErrorKeys.clear();
-  }
-  function determineFill(paint) {
-    if (paint.type === "SOLID") {
-      const { r, g, b } = paint.color;
-      const hex = rgbToHex(r, g, b);
-      const opacity = paint.opacity !== void 0 && paint.opacity < 1 ? ` (${Math.round(paint.opacity * 100)}%)` : "";
-      return hex + opacity;
-    }
-    if (paint.type === "IMAGE") return "Image fill";
-    if (paint.type === "VIDEO") return "Video fill";
-    if (paint.type.includes("GRADIENT")) return `${paint.type.replace("GRADIENT_", "").toLowerCase()} gradient`;
-    return paint.type;
-  }
-  function hasBoundVariable(node, property) {
-    try {
-      if ("boundVariables" in node) {
-        const bound = node.boundVariables;
-        if (bound && bound[property]) return true;
-      }
-    } catch (e) {
-    }
-    return false;
-  }
-  function checkFills(node, errors, path) {
-    if (!("fills" in node)) return;
-    const fills = node.fills;
-    if (fills === figma.mixed || !Array.isArray(fills)) return;
-    const visibleFills = fills.filter((f) => f.visible !== false);
-    if (visibleFills.length === 0) return;
-    if (hasBoundVariable(node, "fills")) return;
-    if ("fillStyleId" in node) {
-      const styleId = node.fillStyleId;
-      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
-    }
-    for (const fill of visibleFills) {
-      const value = determineFill(fill);
-      errors.push({
-        nodeId: node.id,
-        nodeName: node.name,
-        nodeType: node.type,
-        errorType: "fill",
-        message: `Missing fill style: ${value}`,
-        value,
-        path
-      });
-    }
-  }
-  function checkStrokes(node, errors, path) {
-    if (!("strokes" in node)) return;
-    const strokes = node.strokes;
-    if (!Array.isArray(strokes)) return;
-    const visibleStrokes = strokes.filter((s) => s.visible !== false);
-    if (visibleStrokes.length === 0) return;
-    if (hasBoundVariable(node, "strokes")) return;
-    if ("strokeStyleId" in node) {
-      const styleId = node.strokeStyleId;
-      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
-    }
-    for (const stroke of visibleStrokes) {
-      const value = determineFill(stroke);
-      const weight = "strokeWeight" in node ? ` (${node.strokeWeight}px)` : "";
-      errors.push({
-        nodeId: node.id,
-        nodeName: node.name,
-        nodeType: node.type,
-        errorType: "stroke",
-        message: `Missing stroke style: ${value}${weight}`,
-        value: value + weight,
-        path
-      });
-    }
-  }
-  function checkEffects(node, errors, path) {
-    if (!("effects" in node)) return;
-    const effects = node.effects;
-    if (!Array.isArray(effects) || effects.length === 0) return;
-    const visibleEffects = effects.filter((e) => e.visible !== false);
-    if (visibleEffects.length === 0) return;
-    if ("effectStyleId" in node) {
-      const styleId = node.effectStyleId;
-      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
-    }
-    const descriptions = visibleEffects.map((e) => {
-      const parts = [e.type.replace(/_/g, " ").toLowerCase()];
-      if ("radius" in e) parts.push(`r:${e.radius}`);
-      if ("color" in e && e.color) {
-        const c = e.color;
-        parts.push(rgbToHex(c.r, c.g, c.b));
-      }
-      return parts.join(" ");
-    });
-    errors.push({
-      nodeId: node.id,
-      nodeName: node.name,
-      nodeType: node.type,
-      errorType: "effect",
-      message: `Missing effect style: ${descriptions.join(", ")}`,
-      value: descriptions.join(", "),
-      path
-    });
-  }
-  function checkTextStyle(node, errors, path) {
-    if ("textStyleId" in node) {
-      const styleId = node.textStyleId;
-      if (styleId && styleId !== "" && styleId !== figma.mixed) return;
-    }
-    const fontName = node.fontName !== figma.mixed ? node.fontName : null;
-    const fontSize = node.fontSize !== figma.mixed ? node.fontSize : null;
-    const parts = [];
-    if (fontName) parts.push(`${fontName.family} ${fontName.style}`);
-    if (fontSize) parts.push(`${fontSize}px`);
-    const value = parts.join(" / ") || "unknown text style";
-    errors.push({
-      nodeId: node.id,
-      nodeName: node.name,
-      nodeType: node.type,
-      errorType: "text",
-      message: `Missing text style: ${value}`,
-      value,
-      path
-    });
-  }
-  function checkRadius(node, errors, path, allowedRadii) {
-    if (!("cornerRadius" in node)) return;
-    if (hasBoundVariable(node, "topLeftRadius") || hasBoundVariable(node, "cornerRadius")) return;
-    const cr = node.cornerRadius;
-    if (cr === figma.mixed) {
-      const corners = [
-        node.topLeftRadius,
-        node.topRightRadius,
-        node.bottomLeftRadius,
-        node.bottomRightRadius
-      ].filter((v) => v !== void 0 && v !== null);
-      for (const c of corners) {
-        if (!allowedRadii.includes(c)) {
-          errors.push({
-            nodeId: node.id,
-            nodeName: node.name,
-            nodeType: node.type,
-            errorType: "radius",
-            message: `Non-standard border radius: ${c}px (allowed: ${allowedRadii.join(", ")})`,
-            value: `${c}px`,
-            path
-          });
-          break;
-        }
-      }
-      return;
-    }
-    if (typeof cr === "number" && cr > 0 && !allowedRadii.includes(cr)) {
-      errors.push({
-        nodeId: node.id,
-        nodeName: node.name,
-        nodeType: node.type,
-        errorType: "radius",
-        message: `Non-standard border radius: ${cr}px (allowed: ${allowedRadii.join(", ")})`,
-        value: `${cr}px`,
-        path
-      });
-    }
-  }
-  function lintNode(node, settings, errors, path) {
-    if (node.type === "GROUP" || node.type === "SLICE" || node.type === "CONNECTOR") return;
-    if (node.type === "COMPONENT_SET") return;
-    switch (node.type) {
-      case "TEXT":
-        if (settings.checkTextStyles) checkTextStyle(node, errors, path);
-        if (settings.checkFills) checkFills(node, errors, path);
-        break;
-      case "FRAME":
-      case "SECTION":
-        if (settings.checkFills) checkFills(node, errors, path);
-        if (settings.checkStrokes) checkStrokes(node, errors, path);
-        if (settings.checkEffects) checkEffects(node, errors, path);
-        if (settings.checkRadius) checkRadius(node, errors, path, settings.allowedRadii);
-        break;
-      case "RECTANGLE":
-      case "COMPONENT":
-      case "INSTANCE":
-        if (settings.checkFills) checkFills(node, errors, path);
-        if (settings.checkStrokes) checkStrokes(node, errors, path);
-        if (settings.checkEffects) checkEffects(node, errors, path);
-        if (settings.checkRadius) checkRadius(node, errors, path, settings.allowedRadii);
-        break;
-      case "ELLIPSE":
-      case "POLYGON":
-      case "STAR":
-      case "VECTOR":
-      case "LINE":
-      case "BOOLEAN_OPERATION":
-        if (settings.checkFills) checkFills(node, errors, path);
-        if (settings.checkStrokes) checkStrokes(node, errors, path);
-        if (settings.checkEffects) checkEffects(node, errors, path);
-        break;
-    }
-  }
-  function traverseAndLint(node, settings, errors, parentPath, parentLocked) {
-    let count = 0;
-    const isLocked = parentLocked || "locked" in node && node.locked;
-    const isHidden = "visible" in node && !node.visible;
-    if (settings.skipLockedLayers && isLocked) return 0;
-    if (settings.skipHiddenLayers && isHidden) return 0;
-    const path = parentPath ? `${parentPath} > ${node.name}` : node.name;
-    count++;
-    if (!ignoredNodeIds.has(node.id)) {
-      const preLen = errors.length;
-      lintNode(node, settings, errors, path);
-      for (let i = errors.length - 1; i >= preLen; i--) {
-        if (ignoredErrorKeys.has(errorKey(errors[i].nodeId, errors[i].errorType))) {
-          errors.splice(i, 1);
-        }
-      }
-    }
-    if ("children" in node) {
-      for (const child of node.children) {
-        count += traverseAndLint(child, settings, errors, path, isLocked);
-      }
-    }
-    return count;
-  }
-  function runDesignLint(nodes, settings = DEFAULT_LINT_SETTINGS) {
-    const errors = [];
-    let totalNodes = 0;
-    for (const node of nodes) {
-      totalNodes += traverseAndLint(node, settings, errors, "", false);
-    }
-    const skipOpts = { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers };
-    if (settings.checkSpacing) {
-      const spacingResult = checkSpacing(nodes, skipOpts);
-      for (const issue of spacingResult.issues) {
-        errors.push({
-          nodeId: issue.nodeId,
-          nodeName: issue.nodeName,
-          nodeType: "FRAME",
-          errorType: "spacing",
-          message: issue.message,
-          value: issue.currentValue || "",
-          path: issue.nodeName
-        });
-      }
-    }
-    if (settings.checkAutoLayout) {
-      const autoLayoutResult = checkAutoLayout(nodes, skipOpts);
-      for (const issue of autoLayoutResult.issues) {
-        errors.push({
-          nodeId: issue.nodeId,
-          nodeName: issue.nodeName,
-          nodeType: "FRAME",
-          errorType: "autoLayout",
-          message: issue.message,
-          value: issue.currentValue || "",
-          path: issue.nodeName
-        });
-      }
-    }
-    const nodesWithErrors = new Set(errors.map((e) => e.nodeId)).size;
-    const byType = { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0 };
-    for (const err of errors) {
-      byType[err.errorType]++;
-    }
-    const summary = {
-      totalErrors: errors.length,
-      byType,
-      totalNodes,
-      nodesWithErrors
-    };
-    return {
-      errors,
-      ignoredNodeIds: Array.from(ignoredNodeIds),
-      ignoredErrorKeys: Array.from(ignoredErrorKeys),
-      summary
-    };
-  }
-  function lintSelection(settings) {
-    const selection = figma.currentPage.selection;
-    if (selection.length === 0) {
-      return {
-        errors: [],
-        ignoredNodeIds: [],
-        ignoredErrorKeys: [],
-        summary: { totalErrors: 0, byType: { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0 }, totalNodes: 0, nodesWithErrors: 0 }
-      };
-    }
-    return runDesignLint(selection, settings);
-  }
-  function findNodesWithSameValue(rootNodes, errorType, value, settings = DEFAULT_LINT_SETTINGS) {
-    const result = runDesignLint(rootNodes, settings);
-    return result.errors.filter((e) => e.errorType === errorType && e.value === value);
-  }
-
   // src/core/component-analyzer.ts
+  init_design_lint();
   async function extractComponentContext(node) {
     const hierarchy = extractLayerHierarchy(node);
     const nestedLayers = getLayerNames(hierarchy);
@@ -4341,7 +5995,7 @@ Focus on creating a comprehensive DESIGN analysis that helps designers build sca
       }
     }
     context.existingDescription = componentDescription;
-    const lintResult = runDesignLint([node], DEFAULT_LINT_SETTINGS);
+    const lintResult = runDesignLint([node], options.lintSettings || DEFAULT_LINT_SETTINGS);
     console.log(`\u{1F50D} [LINT] Deterministic lint: ${lintResult.summary.totalErrors} issues in ${lintResult.summary.nodesWithErrors} nodes`);
     console.log(`\u{1F4CA} [ANALYSIS] Extracted from Figma API:`);
     console.log(`  Properties: ${actualProperties.length}`);
@@ -4640,7 +6294,7 @@ Focus ONLY on what's actually in the Figma component for existing data. Recommen
       // Limit recommendations
     };
   }
-  function generatePropertyCheatSheet(properties, componentName) {
+  function generatePropertyCheatSheet(properties, _componentName) {
     const cheatSheet = [];
     const sizeProps = properties.filter(
       (p) => p.name.toLowerCase().includes("size") || p.values.some((v) => ["small", "medium", "large"].includes(v.toLowerCase()))
@@ -5051,7 +6705,7 @@ Rules:
       nextSteps: parsed.nextSteps || []
     };
   }
-  async function createAuditResults(filteredData, context, node, actualProperties, actualStates, tokens, componentDescription) {
+  async function createAuditResults(_filteredData, _context, node, actualProperties, actualStates, _tokens, componentDescription) {
     var _a;
     let parentHasDescription = false;
     let parentDescription = "";
@@ -5125,36 +6779,6 @@ Rules:
     const interactiveStates = ["hover", "pressed", "focus", "focused", "active", "disabled"];
     if (states.some((s) => interactiveStates.includes(s.toLowerCase()))) return true;
     return false;
-  }
-  function getLuminance(r, g, b) {
-    const [rs, gs, bs] = [r, g, b].map((c) => {
-      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-    });
-    return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
-  }
-  function getContrastRatio(l1, l2) {
-    const lighter = Math.max(l1, l2);
-    const darker = Math.min(l1, l2);
-    return (lighter + 0.05) / (darker + 0.05);
-  }
-  function findBackgroundColor(node) {
-    let current = node.parent;
-    while (current && "type" in current) {
-      const sceneNode = current;
-      if ("fills" in sceneNode) {
-        const fills = sceneNode.fills;
-        if (Array.isArray(fills)) {
-          for (const fill of fills) {
-            if (fill.type === "SOLID" && fill.visible !== false && fill.color) {
-              if (fill.boundVariables && fill.boundVariables.color) continue;
-              return fill.color;
-            }
-          }
-        }
-      }
-      current = current.parent;
-    }
-    return null;
   }
   function runAccessibilityChecks(node, states) {
     const checks = [];
@@ -5589,8 +7213,9 @@ Rules:
       this.designSystemsKnowledge = null;
       this.config = __spreadValues({
         enableCaching: true,
-        enableMCPIntegration: true,
-        mcpServerUrl: "https://design-systems-mcp.southleft-llc.workers.dev/mcp",
+        enableMCPIntegration: false,
+        // MCP handled by backend
+        // mcpServerUrl removed: MCP handled by backend (Thesis #4)
         consistencyThreshold: 0.95
       }, config);
     }
@@ -5646,156 +7271,24 @@ Rules:
     /**
     * Load design systems knowledge from MCP server
     */
+    /**
+     * Inject design systems knowledge received from the backend.
+     */
+    setDesignSystemsKnowledge(knowledge) {
+      this.designSystemsKnowledge = knowledge;
+    }
     async loadDesignSystemsKnowledge() {
-      if (!this.config.enableMCPIntegration) {
-        console.log("\u{1F4DA} MCP integration disabled, using fallback knowledge");
-        this.loadFallbackKnowledge();
-        return;
-      }
-      try {
-        console.log("\u{1F504} Loading design systems knowledge from MCP...");
-        const connectivityTest = await this.testMCPConnectivity();
-        if (!connectivityTest) {
-          console.warn("\u26A0\uFE0F MCP server not accessible, using fallback knowledge");
-          this.loadFallbackKnowledge();
-          return;
-        }
-        const [componentKnowledge, tokenKnowledge, accessibilityKnowledge, scoringKnowledge] = await Promise.allSettled([
-          this.queryMCP("component analysis best practices"),
-          this.queryMCP("design token naming conventions and patterns"),
-          this.queryMCP("design system accessibility requirements"),
-          this.queryMCP("design system component scoring methodology")
-        ]);
-        this.designSystemsKnowledge = {
-          version: "1.0.0",
-          components: this.processComponentKnowledge(
-            componentKnowledge.status === "fulfilled" ? componentKnowledge.value : null
-          ),
-          tokens: this.processKnowledgeContent(
-            tokenKnowledge.status === "fulfilled" ? tokenKnowledge.value : null
-          ),
-          accessibility: this.processKnowledgeContent(
-            accessibilityKnowledge.status === "fulfilled" ? accessibilityKnowledge.value : null
-          ),
-          scoring: this.processKnowledgeContent(
-            scoringKnowledge.status === "fulfilled" ? scoringKnowledge.value : null
-          ),
-          lastUpdated: Date.now()
-        };
-        const successfulQueries = [componentKnowledge, tokenKnowledge, accessibilityKnowledge, scoringKnowledge].filter((result) => result.status === "fulfilled").length;
-        if (successfulQueries > 0) {
-          console.log(`\u2705 Design systems knowledge loaded successfully (${successfulQueries}/4 queries successful)`);
-        } else {
-          console.warn("\u26A0\uFE0F All MCP queries failed, using fallback knowledge");
-          this.loadFallbackKnowledge();
-        }
-      } catch (error) {
-        console.warn("\u26A0\uFE0F Failed to load design systems knowledge:", error);
-        this.loadFallbackKnowledge();
-      }
+      this.loadFallbackKnowledge();
     }
     /**
     * Test MCP server connectivity using MCP initialization instead of health endpoint
     */
-    async testMCPConnectivity() {
-      var _a, _b;
-      try {
-        console.log("\u{1F517} Testing MCP server connectivity...");
-        const timeoutPromise = new Promise(
-          (_, reject) => setTimeout(() => reject(new Error("Connectivity test timeout")), 5e3)
-        );
-        const initPayload = {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: {
-            protocolVersion: "2024-11-05",
-            capabilities: { roots: { listChanged: true } },
-            clientInfo: { name: "figmalint", version: "2.0.0" }
-          }
-        };
-        if (!this.config.mcpServerUrl) {
-          throw new Error("MCP server URL not configured");
-        }
-        const fetchPromise = fetch(this.config.mcpServerUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(initPayload)
-        });
-        const response = await Promise.race([fetchPromise, timeoutPromise]);
-        if (response.ok) {
-          const data = await response.json();
-          if ((_b = (_a = data.result) == null ? void 0 : _a.serverInfo) == null ? void 0 : _b.name) {
-            console.log(`\u2705 MCP server accessible: ${data.result.serverInfo.name}`);
-            return true;
-          }
-        }
-        console.warn(`\u26A0\uFE0F MCP server returned ${response.status}`);
-        return false;
-      } catch (error) {
-        console.warn("\u26A0\uFE0F MCP server connectivity test failed:", error);
-        return false;
-      }
-    }
     /**
-     * Query the design systems MCP server using proper JSON-RPC protocol
-     */
-    async queryMCP(query) {
-      try {
-        console.log(`\u{1F50D} Querying MCP for: "${query}"`);
-        const timeoutPromise = new Promise(
-          (_, reject) => setTimeout(() => reject(new Error("MCP query timeout")), 5e3)
-        );
-        if (!this.config.mcpServerUrl) {
-          throw new Error("MCP server URL not configured");
-        }
-        const searchPayload = {
-          jsonrpc: "2.0",
-          id: Math.floor(Math.random() * 1e3) + 2,
-          // Random ID > 1 (1 is used for init)
-          method: "tools/call",
-          params: {
-            name: "search_design_knowledge",
-            arguments: {
-              query,
-              limit: 5,
-              category: "components"
-            }
-          }
-        };
-        const fetchPromise = fetch(this.config.mcpServerUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(searchPayload)
-        });
-        const response = await Promise.race([fetchPromise, timeoutPromise]);
-        if (!response.ok) {
-          throw new Error(`MCP query failed: ${response.status} ${response.statusText}`);
-        }
-        const result = await response.json();
-        console.log(`\u2705 MCP query successful for: "${query}"`);
-        if (result.result && result.result.content) {
-          return {
-            results: result.result.content.map((item) => ({
-              title: item.title || "Design System Knowledge",
-              content: item.content || item.description || "Knowledge content",
-              category: "design-systems"
-            }))
-          };
-        }
-        return { results: [] };
-      } catch (error) {
-        console.warn(`\u26A0\uFE0F MCP query failed for "${query}":`, error);
-        return this.getFallbackKnowledgeForQuery(query);
-      }
-    }
+    * Query the design systems MCP server using proper JSON-RPC protocol
+    */
     /**
-     * Create deterministic analysis prompt with MCP knowledge
-     */
+    * Create deterministic analysis prompt with MCP knowledge
+    */
     createDeterministicPrompt(context) {
       const basePrompt = this.createBasePrompt(context);
       const mcpGuidance = this.getMCPGuidance(context);
@@ -5932,79 +7425,12 @@ ${scoringCriteria}
       const guidance = this.designSystemsKnowledge.components[family] || this.designSystemsKnowledge.components.generic;
       return guidance || this.getFallbackGuidance(context);
     }
-    getScoringCriteria(context) {
+    getScoringCriteria(_context) {
       var _a;
       if (!((_a = this.designSystemsKnowledge) == null ? void 0 : _a.scoring)) {
         return this.getFallbackScoringCriteria();
       }
       return this.designSystemsKnowledge.scoring;
-    }
-    processComponentKnowledge(knowledge) {
-      if (!knowledge || !knowledge.results || !Array.isArray(knowledge.results)) {
-        console.log("\u{1F4DD} No component knowledge available, using defaults");
-        return this.getDefaultComponentKnowledge();
-      }
-      const processed = {};
-      knowledge.results.forEach((result) => {
-        if (result.title && result.content) {
-          const componentType = this.extractComponentType(result.title);
-          processed[componentType] = result.content;
-        }
-      });
-      const defaults = this.getDefaultComponentKnowledge();
-      return __spreadValues(__spreadValues({}, defaults), processed);
-    }
-    extractComponentType(title) {
-      const titleLower = title.toLowerCase();
-      if (titleLower.includes("button")) return "button";
-      if (titleLower.includes("avatar")) return "avatar";
-      if (titleLower.includes("input") || titleLower.includes("field")) return "input";
-      if (titleLower.includes("card")) return "card";
-      if (titleLower.includes("badge") || titleLower.includes("tag")) return "badge";
-      return "generic";
-    }
-    processKnowledgeContent(knowledge) {
-      if (!knowledge || !knowledge.results || !Array.isArray(knowledge.results)) {
-        return "";
-      }
-      return knowledge.results.map((result) => result.content).filter((content) => content).join("\n\n");
-    }
-    getDefaultComponentKnowledge() {
-      return {
-        button: "Button components require comprehensive state management (default, hover, focus, active, disabled). Score based on state completeness (45%), semantic token usage (35%), and accessibility (20%).",
-        avatar: "Avatar components should support multiple sizes and states. Interactive avatars need hover/focus states. Score based on size variants (25%), state coverage (25%), image handling (25%), and fallback mechanisms (25%).",
-        card: "Card components need consistent spacing, proper content hierarchy, and optional interactive states. Score based on content structure (30%), spacing consistency (25%), optional interactivity (25%), and token usage (20%).",
-        badge: "Badge components are typically status indicators with semantic color usage. Score based on semantic color mapping (40%), size variants (30%), content clarity (20%), and accessibility (10%).",
-        input: "Form input components require comprehensive state management and accessibility. Score based on state completeness (35%), accessibility compliance (30%), validation feedback (20%), and token usage (15%).",
-        icon: "Icon components should be scalable and consistent. Score based on sizing flexibility (35%), accessibility (35%), and style consistency (30%).",
-        generic: "Generic components should follow basic design system principles. Score based on structure clarity (35%), token usage (35%), and accessibility basics (30%)."
-      };
-    }
-    getFallbackKnowledgeForQuery(query) {
-      return {
-        results: [
-          {
-            title: `Fallback guidance for ${query}`,
-            content: this.getFallbackContentForQuery(query),
-            category: "fallback"
-          }
-        ]
-      };
-    }
-    getFallbackContentForQuery(query) {
-      if (query.includes("component analysis")) {
-        return "Components should follow consistent naming, use design tokens, implement proper states, and maintain accessibility standards.";
-      }
-      if (query.includes("token")) {
-        return "Design tokens should use semantic naming patterns like semantic-color-primary, spacing-md-16px, and text-size-lg-18px.";
-      }
-      if (query.includes("accessibility")) {
-        return "Ensure WCAG 2.1 AA compliance with proper ARIA labels, keyboard support, and color contrast.";
-      }
-      if (query.includes("scoring")) {
-        return "Score components based on structure (25%), token usage (25%), accessibility (25%), and consistency (25%).";
-      }
-      return "Follow established design system best practices for consistency and scalability.";
     }
     getFallbackGuidance(context) {
       var _a;
@@ -6119,13 +7545,89 @@ ${scoringCriteria}
       const corrected = __spreadValues({}, tokens);
       return corrected;
     }
-    ensureConsistentScoring(mcpReadiness, context) {
+    ensureConsistentScoring(mcpReadiness, _context) {
       return __spreadProps(__spreadValues({}, mcpReadiness), {
         score: mcpReadiness.score || 0
       });
     }
   };
   var consistency_engine_default = ComponentConsistencyEngine;
+
+  // src/fixes/token-fixer.ts
+  init_figma_helpers();
+
+  // src/fixes/color-distance.ts
+  function srgbToLab(r, g, b) {
+    const linearize = (c) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    const lr = linearize(r);
+    const lg = linearize(g);
+    const lb = linearize(b);
+    const x = (lr * 0.4124564 + lg * 0.3575761 + lb * 0.1804375) / 0.95047;
+    const y = lr * 0.2126729 + lg * 0.7151522 + lb * 0.072175;
+    const z = (lr * 0.0193339 + lg * 0.119192 + lb * 0.9503041) / 1.08883;
+    const f = (t) => t > 8856e-6 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+    const fx = f(x);
+    const fy = f(y);
+    const fz = f(z);
+    return {
+      L: 116 * fy - 16,
+      a: 500 * (fx - fy),
+      b: 200 * (fy - fz)
+    };
+  }
+  function ciede2000(lab1, lab2) {
+    const { L: L1, a: a1, b: b1 } = lab1;
+    const { L: L2, a: a2, b: b2 } = lab2;
+    const kL = 1, kC = 1, kH = 1;
+    const C1 = Math.sqrt(a1 * a1 + b1 * b1);
+    const C2 = Math.sqrt(a2 * a2 + b2 * b2);
+    const Cab = (C1 + C2) / 2;
+    const Cab7 = Math.pow(Cab, 7);
+    const G = 0.5 * (1 - Math.sqrt(Cab7 / (Cab7 + 6103515625)));
+    const a1p = a1 * (1 + G);
+    const a2p = a2 * (1 + G);
+    const C1p = Math.sqrt(a1p * a1p + b1 * b1);
+    const C2p = Math.sqrt(a2p * a2p + b2 * b2);
+    const h1p = Math.atan2(b1, a1p) * 180 / Math.PI;
+    const h2p = Math.atan2(b2, a2p) * 180 / Math.PI;
+    const h1pn = (h1p % 360 + 360) % 360;
+    const h2pn = (h2p % 360 + 360) % 360;
+    const dLp = L2 - L1;
+    const dCp = C2p - C1p;
+    let dhp;
+    if (C1p * C2p === 0) {
+      dhp = 0;
+    } else if (Math.abs(h2pn - h1pn) <= 180) {
+      dhp = h2pn - h1pn;
+    } else if (h2pn - h1pn > 180) {
+      dhp = h2pn - h1pn - 360;
+    } else {
+      dhp = h2pn - h1pn + 360;
+    }
+    const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin(dhp * Math.PI / 360);
+    const Lp = (L1 + L2) / 2;
+    const Cp = (C1p + C2p) / 2;
+    let hp;
+    if (C1p * C2p === 0) {
+      hp = h1pn + h2pn;
+    } else if (Math.abs(h1pn - h2pn) <= 180) {
+      hp = (h1pn + h2pn) / 2;
+    } else if (h1pn + h2pn < 360) {
+      hp = (h1pn + h2pn + 360) / 2;
+    } else {
+      hp = (h1pn + h2pn - 360) / 2;
+    }
+    const T = 1 - 0.17 * Math.cos((hp - 30) * Math.PI / 180) + 0.24 * Math.cos(2 * hp * Math.PI / 180) + 0.32 * Math.cos((3 * hp + 6) * Math.PI / 180) - 0.2 * Math.cos((4 * hp - 63) * Math.PI / 180);
+    const SL = 1 + 0.015 * Math.pow(Lp - 50, 2) / Math.sqrt(20 + Math.pow(Lp - 50, 2));
+    const SC = 1 + 0.045 * Cp;
+    const SH = 1 + 0.015 * Cp * T;
+    const Cp7 = Math.pow(Cp, 7);
+    const RT = -2 * Math.sqrt(Cp7 / (Cp7 + 6103515625)) * Math.sin(60 * Math.exp(-Math.pow((hp - 275) / 25, 2)) * Math.PI / 180);
+    const dE = Math.sqrt(
+      Math.pow(dLp / (kL * SL), 2) + Math.pow(dCp / (kC * SC), 2) + Math.pow(dHp / (kH * SH), 2) + RT * (dCp / (kC * SC)) * (dHp / (kH * SH))
+    );
+    return dE;
+  }
 
   // src/fixes/token-fixer.ts
   async function bindColorToken(node, propertyType, variableId, paintIndex = 0) {
@@ -6510,19 +8012,20 @@ ${scoringCriteria}
     };
   }
   function calculateColorMatchScore(color1, color2) {
-    const dr = color1.r - color2.r;
-    const dg = color1.g - color2.g;
-    const db = color1.b - color2.b;
-    const distance = Math.sqrt(dr * dr + dg * dg + db * db);
-    const maxDistance = Math.sqrt(3);
-    return 1 - distance / maxDistance;
+    const lab1 = srgbToLab(color1.r, color1.g, color1.b);
+    const lab2 = srgbToLab(color2.r, color2.g, color2.b);
+    const deltaE = ciede2000(lab1, lab2);
+    if (deltaE < 3) return 1;
+    if (deltaE >= 10) return 0;
+    return 1 - (deltaE - 3) / 7;
   }
 
   // src/extract/screenshot.ts
   async function exportScreenshot(node, maxWidth = 1024) {
+    const width = Math.max(1, Math.min(maxWidth, Math.round(node.width)));
     const bytes = await node.exportAsync({
       format: "PNG",
-      constraint: { type: "WIDTH", value: Math.min(maxWidth, node.width) }
+      constraint: { type: "WIDTH", value: width }
     });
     return uint8ArrayToBase64(bytes);
   }
@@ -6542,7 +8045,436 @@ ${scoringCriteria}
     return result;
   }
 
+  // src/flow/graph-builder.ts
+  var INTERACTIVE_RE = /button|btn|cta|link|tab|nav|menu|input|checkbox|toggle|switch|radio|select|dropdown|slider/i;
+  function hasInteractiveChildren(node) {
+    if (INTERACTIVE_RE.test(node.name)) return true;
+    if ("children" in node) {
+      for (const child of node.children) {
+        if (hasInteractiveChildren(child)) return true;
+      }
+    }
+    return false;
+  }
+  function collectReactions(node, frameId, edges) {
+    var _a, _b;
+    if ("reactions" in node) {
+      const reactions = node.reactions;
+      if (reactions && reactions.length > 0) {
+        for (const reaction of reactions) {
+          const actions = reaction.actions || (reaction.action ? [reaction.action] : []);
+          for (const action of actions) {
+            if (action.type === "NODE" && action.destinationId) {
+              edges.push({
+                sourceFrameId: frameId,
+                sourceNodeId: node.id,
+                sourceNodeName: node.name,
+                destinationFrameId: action.destinationId,
+                trigger: ((_a = reaction.trigger) == null ? void 0 : _a.type) || "UNKNOWN",
+                navigation: action.navigation || "NAVIGATE",
+                hasTransition: !!action.transition
+              });
+            }
+            if (action.type === "BACK") {
+              edges.push({
+                sourceFrameId: frameId,
+                sourceNodeId: node.id,
+                sourceNodeName: node.name,
+                destinationFrameId: "__BACK__",
+                trigger: ((_b = reaction.trigger) == null ? void 0 : _b.type) || "UNKNOWN",
+                navigation: "BACK",
+                hasTransition: !!action.transition
+              });
+            }
+          }
+        }
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        collectReactions(child, frameId, edges);
+      }
+    }
+  }
+  function buildFlowGraph(page) {
+    var _a, _b, _c;
+    const currentPage = page || figma.currentPage;
+    const topFrames = currentPage.children.filter(
+      (n) => n.type === "FRAME" || n.type === "COMPONENT"
+    );
+    const startingPointIds = new Set(
+      (currentPage.flowStartingPoints || []).map((sp) => sp.nodeId)
+    );
+    const frames = topFrames.map((f) => ({
+      id: f.id,
+      name: f.name,
+      pageId: currentPage.id,
+      pageName: currentPage.name,
+      width: f.width,
+      height: f.height,
+      isFlowStartingPoint: startingPointIds.has(f.id),
+      childCount: "children" in f ? f.children.length : 0,
+      hasInteractiveElements: hasInteractiveChildren(f)
+    }));
+    const frameIds = new Set(frames.map((f) => f.id));
+    const edges = [];
+    for (const frame of topFrames) {
+      collectReactions(frame, frame.id, edges);
+    }
+    const validEdges = edges.filter(
+      (e) => e.destinationFrameId === "__BACK__" || frameIds.has(e.destinationFrameId)
+    );
+    const entryPoints = frames.filter((f) => f.isFlowStartingPoint).map((f) => f.id);
+    const outgoing = /* @__PURE__ */ new Map();
+    const incoming = /* @__PURE__ */ new Map();
+    for (const fId of frameIds) {
+      outgoing.set(fId, /* @__PURE__ */ new Set());
+      incoming.set(fId, /* @__PURE__ */ new Set());
+    }
+    for (const edge of validEdges) {
+      if (edge.destinationFrameId !== "__BACK__") {
+        (_a = outgoing.get(edge.sourceFrameId)) == null ? void 0 : _a.add(edge.destinationFrameId);
+        (_b = incoming.get(edge.destinationFrameId)) == null ? void 0 : _b.add(edge.sourceFrameId);
+      }
+    }
+    const deadEnds = frames.filter((f) => {
+      var _a2;
+      return (((_a2 = outgoing.get(f.id)) == null ? void 0 : _a2.size) || 0) === 0;
+    }).map((f) => f.id);
+    const orphans = frames.filter((f) => {
+      var _a2;
+      return (((_a2 = incoming.get(f.id)) == null ? void 0 : _a2.size) || 0) === 0 && !startingPointIds.has(f.id);
+    }).map((f) => f.id);
+    const reachable = /* @__PURE__ */ new Set();
+    const queue = [...entryPoints];
+    if (queue.length === 0) {
+      for (const f of frames) {
+        if ((((_c = incoming.get(f.id)) == null ? void 0 : _c.size) || 0) === 0) {
+          queue.push(f.id);
+        }
+      }
+    }
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (reachable.has(current)) continue;
+      reachable.add(current);
+      const destinations = outgoing.get(current);
+      if (destinations) {
+        for (const dest of destinations) {
+          if (!reachable.has(dest)) {
+            queue.push(dest);
+          }
+        }
+      }
+    }
+    const unreachable = frames.filter((f) => !reachable.has(f.id)).map((f) => f.id);
+    const loops = [];
+    const visited = /* @__PURE__ */ new Set();
+    const inStack = /* @__PURE__ */ new Set();
+    const path = [];
+    function dfs(nodeId) {
+      if (inStack.has(nodeId)) {
+        const cycleStart = path.indexOf(nodeId);
+        if (cycleStart !== -1) {
+          loops.push(path.slice(cycleStart));
+        }
+        return;
+      }
+      if (visited.has(nodeId)) return;
+      visited.add(nodeId);
+      inStack.add(nodeId);
+      path.push(nodeId);
+      const dests = outgoing.get(nodeId);
+      if (dests) {
+        for (const dest of dests) {
+          dfs(dest);
+        }
+      }
+      path.pop();
+      inStack.delete(nodeId);
+    }
+    for (const fId of frameIds) {
+      dfs(fId);
+    }
+    const branchingFactors = frames.map((f) => {
+      var _a2;
+      return ((_a2 = outgoing.get(f.id)) == null ? void 0 : _a2.size) || 0;
+    });
+    const avgBranching = branchingFactors.length > 0 ? branchingFactors.reduce((a, b) => a + b, 0) / branchingFactors.length : 0;
+    let maxDepth = 0;
+    const depthQueue = entryPoints.map((id) => ({ id, depth: 0 }));
+    const depthVisited = /* @__PURE__ */ new Set();
+    while (depthQueue.length > 0) {
+      const { id, depth } = depthQueue.shift();
+      if (depthVisited.has(id)) continue;
+      depthVisited.add(id);
+      if (depth > maxDepth) maxDepth = depth;
+      const dests = outgoing.get(id);
+      if (dests) {
+        for (const dest of dests) {
+          if (!depthVisited.has(dest)) {
+            depthQueue.push({ id: dest, depth: depth + 1 });
+          }
+        }
+      }
+    }
+    return {
+      frames,
+      edges: validEdges,
+      entryPoints,
+      deadEnds,
+      orphans,
+      unreachable,
+      loops,
+      stats: {
+        totalFrames: frames.length,
+        totalEdges: validEdges.length,
+        totalEntryPoints: entryPoints.length,
+        maxDepth,
+        avgBranching: Math.round(avgBranching * 100) / 100
+      }
+    };
+  }
+  function analyzeFlowGraph(graph) {
+    const issues = [];
+    const frameNameById = new Map(graph.frames.map((f) => [f.id, f.name]));
+    const nameList = (ids) => ids.map((id) => `"${frameNameById.get(id) || id}"`).join(", ");
+    for (const id of graph.deadEnds) {
+      const name = frameNameById.get(id) || "";
+      const isTerminal = /success|confirm|done|complete|thank|receipt|summary/i.test(name);
+      if (!isTerminal) {
+        issues.push({
+          type: "dead-end",
+          severity: "warning",
+          frameIds: [id],
+          message: `${nameList([id])} has no outgoing connections \u2014 user gets stuck here.`
+        });
+      }
+    }
+    if (graph.orphans.length > 0) {
+      issues.push({
+        type: "orphan",
+        severity: "warning",
+        frameIds: graph.orphans,
+        message: `${nameList(graph.orphans)} ${graph.orphans.length === 1 ? "has" : "have"} no incoming connections \u2014 unreachable by navigation.`
+      });
+    }
+    const trueUnreachable = graph.unreachable.filter((id) => !graph.orphans.includes(id));
+    if (trueUnreachable.length > 0) {
+      issues.push({
+        type: "unreachable",
+        severity: "critical",
+        frameIds: trueUnreachable,
+        message: `${nameList(trueUnreachable)} ${trueUnreachable.length === 1 ? "is" : "are"} not reachable from any flow entry point.`
+      });
+    }
+    for (const loop of graph.loops) {
+      const loopSet = new Set(loop);
+      const hasExit = loop.some((id) => {
+        const edges = graph.edges.filter((e) => e.sourceFrameId === id);
+        return edges.some((e) => !loopSet.has(e.destinationFrameId));
+      });
+      if (!hasExit) {
+        issues.push({
+          type: "loop",
+          severity: "warning",
+          frameIds: loop,
+          message: `Circular flow without exit: ${nameList(loop)}. User cannot leave this loop.`
+        });
+      }
+    }
+    if (graph.stats.maxDepth > 3) {
+      issues.push({
+        type: "deep-navigation",
+        severity: "info",
+        frameIds: [],
+        message: `Navigation depth is ${graph.stats.maxDepth} levels. Consider flattening to \u22643 levels for better UX (3-click rule).`
+      });
+    }
+    const framesWithoutBack = graph.frames.filter((f) => {
+      if (f.isFlowStartingPoint) return false;
+      const hasBackEdge = graph.edges.some(
+        (e) => e.sourceFrameId === f.id && (e.navigation === "BACK" || e.navigation === "CLOSE")
+      );
+      const hasIncoming = graph.edges.some((e) => e.destinationFrameId === f.id);
+      return hasIncoming && !hasBackEdge;
+    });
+    if (framesWithoutBack.length > 0) {
+      issues.push({
+        type: "missing-back",
+        severity: "info",
+        frameIds: framesWithoutBack.map((f) => f.id),
+        message: `${framesWithoutBack.length} frame${framesWithoutBack.length === 1 ? "" : "s"} missing back/close navigation: ${nameList(framesWithoutBack.map((f) => f.id))}.`
+      });
+    }
+    return issues;
+  }
+
+  // src/flow/cross-screen-checks.ts
+  init_figma_helpers();
+  function extractDesignValues(node, values, skipLocked, skipHidden) {
+    if (skipLocked && "locked" in node && node.locked) return;
+    if (skipHidden && "visible" in node && !node.visible) return;
+    if ("fills" in node) {
+      const fills = node.fills;
+      if (fills !== figma.mixed && Array.isArray(fills)) {
+        for (const fill of fills) {
+          if (fill.type === "SOLID" && fill.visible !== false) {
+            values.colors.add(rgbToHex(fill.color.r, fill.color.g, fill.color.b));
+          }
+        }
+      }
+    }
+    if ("strokes" in node) {
+      const strokes = node.strokes;
+      if (Array.isArray(strokes)) {
+        for (const stroke of strokes) {
+          if (stroke.type === "SOLID" && stroke.visible !== false) {
+            values.colors.add(rgbToHex(stroke.color.r, stroke.color.g, stroke.color.b));
+          }
+        }
+      }
+    }
+    if (node.type === "TEXT") {
+      const textNode = node;
+      if (textNode.fontName !== figma.mixed) {
+        values.fontFamilies.add(textNode.fontName.family);
+      }
+      if (textNode.fontSize !== figma.mixed) {
+        values.fontSizes.add(textNode.fontSize);
+      }
+    }
+    if ("layoutMode" in node && node.layoutMode !== "NONE") {
+      const frame = node;
+      if (typeof frame.itemSpacing === "number") values.spacingValues.add(frame.itemSpacing);
+      if (typeof frame.paddingTop === "number") values.spacingValues.add(frame.paddingTop);
+      if (typeof frame.paddingBottom === "number") values.spacingValues.add(frame.paddingBottom);
+      if (typeof frame.paddingLeft === "number") values.spacingValues.add(frame.paddingLeft);
+      if (typeof frame.paddingRight === "number") values.spacingValues.add(frame.paddingRight);
+    }
+    if (node.type === "INSTANCE") {
+      const mainComponent = node.mainComponent;
+      if (mainComponent) {
+        values.componentNames.add(mainComponent.name);
+      }
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        extractDesignValues(child, values, skipLocked, skipHidden);
+      }
+    }
+  }
+  function setDifference(a, b) {
+    const diff = /* @__PURE__ */ new Set();
+    for (const item of a) {
+      if (!b.has(item)) diff.add(item);
+    }
+    return diff;
+  }
+  function checkCrossScreenConsistency(frameNodes, options = {}) {
+    var _a, _b;
+    const skipLocked = (_a = options.skipLocked) != null ? _a : true;
+    const skipHidden = (_b = options.skipHidden) != null ? _b : true;
+    const issues = [];
+    if (frameNodes.length < 2) return issues;
+    const allValues = frameNodes.map(({ frame, node }) => {
+      const values = {
+        frameId: frame.id,
+        frameName: frame.name,
+        colors: /* @__PURE__ */ new Set(),
+        fontFamilies: /* @__PURE__ */ new Set(),
+        fontSizes: /* @__PURE__ */ new Set(),
+        spacingValues: /* @__PURE__ */ new Set(),
+        componentNames: /* @__PURE__ */ new Set()
+      };
+      extractDesignValues(node, values, skipLocked, skipHidden);
+      return values;
+    });
+    const colorFrequency = /* @__PURE__ */ new Map();
+    for (const v of allValues) {
+      for (const color of v.colors) {
+        colorFrequency.set(color, (colorFrequency.get(color) || 0) + 1);
+      }
+    }
+    const threshold = allValues.length * 0.5;
+    const globalPalette = /* @__PURE__ */ new Set();
+    for (const [color, freq] of colorFrequency) {
+      if (freq >= threshold) globalPalette.add(color);
+    }
+    for (const v of allValues) {
+      const uniqueColors = setDifference(v.colors, globalPalette);
+      if (uniqueColors.size > 3) {
+        issues.push({
+          type: "dead-end",
+          // reusing type, will display as consistency issue
+          severity: "warning",
+          frameIds: [v.frameId],
+          message: `"${v.frameName}" uses ${uniqueColors.size} colors not found in other screens (${[...uniqueColors].slice(0, 3).join(", ")}${uniqueColors.size > 3 ? "..." : ""}). Check for color inconsistency.`
+        });
+      }
+    }
+    const allFonts = /* @__PURE__ */ new Set();
+    for (const v of allValues) {
+      for (const font of v.fontFamilies) allFonts.add(font);
+    }
+    if (allFonts.size > 3) {
+      const fontList = [...allFonts].join(", ");
+      issues.push({
+        type: "dead-end",
+        severity: "warning",
+        frameIds: allValues.map((v) => v.frameId),
+        message: `${allFonts.size} different font families across flow: ${fontList}. Flows should use 1-2 font families for consistency.`
+      });
+    }
+    for (const v of allValues) {
+      const otherFonts = /* @__PURE__ */ new Set();
+      for (const other of allValues) {
+        if (other.frameId !== v.frameId) {
+          for (const f of other.fontFamilies) otherFonts.add(f);
+        }
+      }
+      const uniqueFonts = setDifference(v.fontFamilies, otherFonts);
+      if (uniqueFonts.size > 0 && allValues.length > 2) {
+        issues.push({
+          type: "dead-end",
+          severity: "info",
+          frameIds: [v.frameId],
+          message: `"${v.frameName}" uses font${uniqueFonts.size > 1 ? "s" : ""} not seen elsewhere: ${[...uniqueFonts].join(", ")}.`
+        });
+      }
+    }
+    const allSizes = /* @__PURE__ */ new Set();
+    for (const v of allValues) {
+      for (const size of v.fontSizes) allSizes.add(size);
+    }
+    if (allSizes.size > 10) {
+      issues.push({
+        type: "dead-end",
+        severity: "info",
+        frameIds: allValues.map((v) => v.frameId),
+        message: `${allSizes.size} unique font sizes across the flow. Consider using a type scale with fewer sizes for consistency.`
+      });
+    }
+    const allSpacing = /* @__PURE__ */ new Set();
+    for (const v of allValues) {
+      for (const s of v.spacingValues) {
+        if (s > 0) allSpacing.add(s);
+      }
+    }
+    const nonStandard = [...allSpacing].filter((s) => s % 4 !== 0 && s !== 2);
+    if (nonStandard.length > 3) {
+      issues.push({
+        type: "dead-end",
+        severity: "info",
+        frameIds: allValues.map((v) => v.frameId),
+        message: `${nonStandard.length} non-standard spacing values across flow (${nonStandard.slice(0, 4).join(", ")}px). Consider aligning to a 4px/8px grid.`
+      });
+    }
+    return issues;
+  }
+
   // src/fix/fix-spacing.ts
+  init_types();
   var SPACING_PROPERTIES = [
     "itemSpacing",
     "paddingTop",
@@ -6623,6 +8555,54 @@ ${scoringCriteria}
       results.push(result);
     }
     return results;
+  }
+
+  // src/fix/fix-radius.ts
+  function findNearest(value, allowed) {
+    if (allowed.length === 0) return value;
+    return allowed.reduce(
+      (best, v) => Math.abs(v - value) < Math.abs(best - value) ? v : best
+    );
+  }
+  function fixRadiusToNearest(nodeId, allowedRadii) {
+    const node = figma.getNodeById(nodeId);
+    if (!node) {
+      return { success: false, nodeId, nodeName: "", oldValue: "", newValue: "", error: "Node not found" };
+    }
+    if (!("cornerRadius" in node)) {
+      return { success: false, nodeId, nodeName: node.name, oldValue: "", newValue: "", error: "Node has no corner radius" };
+    }
+    const frame = node;
+    try {
+      const cr = frame.cornerRadius;
+      if (cr === figma.mixed) {
+        const tl = frame.topLeftRadius;
+        const tr = frame.topRightRadius;
+        const bl = frame.bottomLeftRadius;
+        const br = frame.bottomRightRadius;
+        const oldValue = `${tl}/${tr}/${br}/${bl}`;
+        frame.topLeftRadius = findNearest(tl, allowedRadii);
+        frame.topRightRadius = findNearest(tr, allowedRadii);
+        frame.bottomLeftRadius = findNearest(bl, allowedRadii);
+        frame.bottomRightRadius = findNearest(br, allowedRadii);
+        const newValue = `${frame.topLeftRadius}/${frame.topRightRadius}/${frame.bottomRightRadius}/${frame.bottomLeftRadius}`;
+        return { success: true, nodeId, nodeName: node.name, oldValue, newValue };
+      } else {
+        const oldValue = `${cr}`;
+        const nearest = findNearest(cr, allowedRadii);
+        frame.cornerRadius = nearest;
+        return { success: true, nodeId, nodeName: node.name, oldValue, newValue: `${nearest}` };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        nodeId,
+        nodeName: node.name,
+        oldValue: "",
+        newValue: "",
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 
   // src/fix/rename-layer.ts
@@ -6750,6 +8730,21 @@ ${scoringCriteria}
           error: result.error
         };
       }
+      case "fixRadiusToNearest": {
+        const nodeId = params.nodeId;
+        const allowedRadii = params.allowedRadii;
+        const result = fixRadiusToNearest(nodeId, allowedRadii);
+        return {
+          type,
+          success: result.success,
+          nodeId: result.nodeId,
+          nodeName: result.nodeName,
+          message: result.success ? `radius: ${result.oldValue}px \u2192 ${result.newValue}px` : result.error || "Failed",
+          oldValue: `${result.oldValue}px`,
+          newValue: `${result.newValue}px`,
+          error: result.error
+        };
+      }
       case "renameLayer": {
         const nodeId = params.nodeId;
         const newName = params.newName;
@@ -6771,6 +8766,7 @@ ${scoringCriteria}
   }
 
   // src/ui/message-handler.ts
+  init_design_lint();
   var storedApiKey = null;
   var selectedModel = "claude-sonnet-4-5-20250929";
   var selectedProvider = "anthropic";
@@ -6873,6 +8869,12 @@ ${scoringCriteria}
         case "lint-load-settings":
           handleLintLoadSettings();
           break;
+        case "lint-save-team-config":
+          handleSaveTeamConfig(data);
+          break;
+        case "lint-load-team-config":
+          handleLoadTeamConfig();
+          break;
         // Chat UI handlers
         case "jump-to-node":
           handleJumpToNode(data);
@@ -6892,6 +8894,9 @@ ${scoringCriteria}
         case "rename-layer-fix":
           handleRenameLayerFix(data);
           break;
+        case "fix-radius-to-nearest":
+          handleFixRadiusToNearest(data);
+          break;
         case "batch-fix-v2":
           await handleBatchFixV2(data);
           break;
@@ -6900,6 +8905,9 @@ ${scoringCriteria}
           break;
         case "export-screenshot":
           await handleExportScreenshot(data);
+          break;
+        case "analyze-flow":
+          await handleAnalyzeFlow();
           break;
         default:
           console.warn("Unknown message type:", type);
@@ -6994,7 +9002,6 @@ ${scoringCriteria}
         return;
       }
       let selectedNode = selection[0];
-      const originalSelectedNode = selectedNode;
       if (selectedNode.type === "INSTANCE") {
         const instance = selectedNode;
         try {
@@ -7243,7 +9250,6 @@ ${scoringCriteria}
       if (node.parent === figma.currentPage) {
         return true;
       }
-      const allPages = figma.root.children.filter((child) => child.type === "PAGE");
       const currentPage = figma.currentPage;
       if (node.type === "COMPONENT" || node.type === "COMPONENT_SET") {
         return findNodeInPage(currentPage, node.id);
@@ -7459,7 +9465,7 @@ Respond naturally and helpfully to the user's question.`;
     handleRunDesignLint();
   }
   function handleLintIgnoreError(data) {
-    ignoreError(data.nodeId, data.errorType);
+    ignoreError(data.nodeId, data.errorType, data.value);
     handleRunDesignLint();
   }
   function handleLintIgnoreAllOfType(data) {
@@ -7514,6 +9520,46 @@ Respond naturally and helpfully to the user's question.`;
       sendMessageToUI("lint-settings-loaded", DEFAULT_LINT_SETTINGS);
     }
   }
+  function handleSaveTeamConfig(data) {
+    try {
+      const config = data.config;
+      if (!config || config.version !== 1) {
+        sendMessageToUI("team-config-saved", { success: false, error: "Invalid config version" });
+        return;
+      }
+      figma.root.setSharedPluginData("figmalint", "config", JSON.stringify(config));
+      sendMessageToUI("team-config-saved", { success: true });
+    } catch (error) {
+      sendMessageToUI("team-config-saved", { success: false, error: String(error) });
+    }
+  }
+  function handleLoadTeamConfig() {
+    var _a, _b;
+    try {
+      const raw = figma.root.getSharedPluginData("figmalint", "config");
+      if (raw) {
+        const config = JSON.parse(raw);
+        if ((_a = config.scales) == null ? void 0 : _a.spacing) {
+          currentLintSettings.spacingScale = config.scales.spacing;
+        }
+        if ((_b = config.scales) == null ? void 0 : _b.radius) {
+          currentLintSettings.allowedRadii = config.scales.radius;
+        }
+        if (config.severityOverrides) {
+          currentLintSettings.severityOverrides = config.severityOverrides;
+        }
+        if (config.ignorePatterns) {
+          currentLintSettings.ignorePatterns = config.ignorePatterns;
+        }
+        sendMessageToUI("team-config-loaded", { config, settings: currentLintSettings });
+      } else {
+        sendMessageToUI("team-config-loaded", { config: null, settings: currentLintSettings });
+      }
+    } catch (error) {
+      console.warn("Could not load team config:", error);
+      sendMessageToUI("team-config-loaded", { config: null, settings: currentLintSettings });
+    }
+  }
   function handleJumpToNode(data) {
     try {
       const node = figma.getNodeById(data.nodeId);
@@ -7525,8 +9571,20 @@ Respond naturally and helpfully to the user's question.`;
       console.warn("Could not jump to node:", data.nodeId, error);
     }
   }
+  var ALLOWED_SPACING_PROPERTIES = /* @__PURE__ */ new Set([
+    "itemSpacing",
+    "paddingTop",
+    "paddingBottom",
+    "paddingLeft",
+    "paddingRight",
+    "counterAxisSpacing"
+  ]);
   function handleFixSpacing(data) {
     try {
+      if (!ALLOWED_SPACING_PROPERTIES.has(data.property)) {
+        sendMessageToUI("fix-error", { error: `Invalid spacing property: ${data.property}` });
+        return;
+      }
       const node = figma.getNodeById(data.nodeId);
       if (node && (node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE")) {
         const oldValue = node[data.property];
@@ -7591,6 +9649,23 @@ Respond naturally and helpfully to the user's question.`;
       });
     } catch (error) {
       sendMessageToUI("fix-error", { error: "Failed to auto-fix spacing" });
+    }
+  }
+  function handleFixRadiusToNearest(data) {
+    try {
+      const allowedRadii = data.allowedRadii || [0, 2, 4, 8, 12, 16, 20, 24, 32];
+      const result = fixRadiusToNearest(data.nodeId, allowedRadii);
+      sendMessageToUI("fix-applied", {
+        type: "radius",
+        nodeId: result.nodeId,
+        nodeName: result.nodeName,
+        oldValue: result.oldValue,
+        newValue: result.newValue,
+        success: result.success,
+        error: result.error
+      });
+    } catch (error) {
+      sendMessageToUI("fix-error", { error: "Failed to auto-fix radius" });
     }
   }
   function handleFixAllSpacing(data) {
@@ -7689,6 +9764,70 @@ Respond naturally and helpfully to the user's question.`;
       totalErrors: result.summary.totalErrors,
       nodesWithErrors: result.summary.nodesWithErrors
     });
+  }
+  async function handleAnalyzeFlow() {
+    try {
+      sendMessageToUI("flow-analysis-started", { status: "building-graph" });
+      const graph = buildFlowGraph();
+      if (graph.frames.length === 0) {
+        sendMessageToUI("flow-analysis-error", { error: "No top-level frames found on current page." });
+        return;
+      }
+      if (graph.frames.length > 50) {
+        sendMessageToUI("flow-analysis-error", { error: `Too many frames (${graph.frames.length}). Select a page with \u226450 frames for flow analysis.` });
+        return;
+      }
+      const graphIssues = analyzeFlowGraph(graph);
+      sendMessageToUI("flow-analysis-started", { status: "capturing-screenshots", total: graph.frames.length });
+      const screenshots = {};
+      const lintResults = {};
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < graph.frames.length; i += BATCH_SIZE) {
+        const batch = graph.frames.slice(i, i + BATCH_SIZE);
+        const promises = batch.map(async (frame) => {
+          const node = await figma.getNodeByIdAsync(frame.id);
+          if (!node || !("exportAsync" in node)) return;
+          try {
+            const screenshot = await exportScreenshot(node);
+            screenshots[frame.id] = screenshot;
+          } catch (e) {
+          }
+          try {
+            const { runDesignLint: runDesignLint2 } = await Promise.resolve().then(() => (init_design_lint(), design_lint_exports));
+            const result = runDesignLint2([node], currentLintSettings);
+            lintResults[frame.id] = result;
+          } catch (e) {
+          }
+        });
+        await Promise.all(promises);
+        sendMessageToUI("flow-analysis-started", {
+          status: "capturing-screenshots",
+          progress: Math.min(i + BATCH_SIZE, graph.frames.length),
+          total: graph.frames.length
+        });
+      }
+      const frameNodesForConsistency = [];
+      for (const frame of graph.frames) {
+        const node = await figma.getNodeByIdAsync(frame.id);
+        if (node) {
+          frameNodesForConsistency.push({ frame, node });
+        }
+      }
+      const consistencyIssues = checkCrossScreenConsistency(frameNodesForConsistency, {
+        skipLocked: currentLintSettings.skipLockedLayers,
+        skipHidden: currentLintSettings.skipHiddenLayers
+      });
+      const allGraphIssues = [...graphIssues, ...consistencyIssues];
+      sendMessageToUI("flow-analysis-result", {
+        graph,
+        graphIssues: allGraphIssues,
+        screenshots,
+        lintResults
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      sendMessageToUI("flow-analysis-error", { error: msg });
+    }
   }
   async function initializePlugin() {
     try {
@@ -7975,8 +10114,7 @@ Respond naturally and helpfully to the user's question.`;
             results.push({
               nodeId: fix.nodeId,
               success,
-              message: success ? `Renamed "${oldName}" to "${newName}"` : "Failed to rename layer",
-              newName: success ? newName : oldName
+              message: success ? `Renamed "${oldName}" to "${newName}"` : "Failed to rename layer"
             });
             if (success) {
               successCount++;

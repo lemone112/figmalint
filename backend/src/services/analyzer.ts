@@ -97,7 +97,7 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
 
   // Build lint summary text — safely access byType keys with fallback to 0
   const bt = req.lintResult.summary.byType || {};
-  const lintSummary = `${req.lintResult.summary.totalErrors} issues: ${bt.fill ?? 0} fills, ${bt.stroke ?? 0} strokes, ${bt.effect ?? 0} effects, ${bt.text ?? 0} text, ${bt.radius ?? 0} radius, ${bt.spacing ?? 0} spacing, ${bt.autoLayout ?? 0} auto-layout, ${bt.visualQuality ?? 0} visual quality, ${bt.microcopy ?? 0} microcopy`;
+  const lintSummary = `${req.lintResult.summary.totalErrors} issues: ${bt.fill ?? 0} fills, ${bt.stroke ?? 0} strokes, ${bt.effect ?? 0} effects, ${bt.text ?? 0} text, ${bt.radius ?? 0} radius, ${bt.spacing ?? 0} spacing, ${bt.autoLayout ?? 0} auto-layout, ${bt.visualQuality ?? 0} visual quality, ${bt.microcopy ?? 0} microcopy, ${bt.conversion ?? 0} conversion, ${bt.cognitive ?? 0} cognitive`;
 
   // Build component info
   const meta = req.extractedData.metadata;
@@ -192,15 +192,19 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
   );
   const visualQualityErrors = errors.filter(e => e.errorType === 'visualQuality');
   const microcopyErrors = errors.filter(e => e.errorType === 'microcopy');
+  const conversionErrors = errors.filter(e => e.errorType === 'conversion');
+  const cognitiveErrors = errors.filter(e => e.errorType === 'cognitive');
 
   const designHealthScore = Math.round(
-    severityScore(tokenErrors, total * 4) * 0.25 +
-    severityScore(a11yErrors, total) * 0.25 +
-    severityScore(spacingErrors, total) * 0.15 +
+    severityScore(tokenErrors, total * 4) * 0.20 +
+    severityScore(a11yErrors, total) * 0.20 +
+    severityScore(spacingErrors, total) * 0.12 +
     severityScore(visualQualityErrors, total) * 0.10 +
-    severityScore(microcopyErrors, total) * 0.10 +
-    severityScore(layoutErrors, total) * 0.10 +
-    severityScore(namingErrors, total) * 0.05
+    severityScore(microcopyErrors, total) * 0.08 +
+    severityScore(conversionErrors, total) * 0.10 +
+    severityScore(cognitiveErrors, total) * 0.08 +
+    severityScore(layoutErrors, total) * 0.08 +
+    severityScore(namingErrors, total) * 0.04
   );
 
   // Save to session
