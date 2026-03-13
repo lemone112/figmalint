@@ -38,7 +38,7 @@ const GENERIC_NAME_RE = /^(Frame|Group|Rectangle|Ellipse|Vector|Line|Polygon|Sta
 
 /**
  * Compute Design Health Score — purely deterministic, no AI.
- * 5 categories: Tokens (30%), Spacing (20%), Layout (10%), Accessibility (30%), Naming (10%).
+ * 7 categories: Tokens (25%), Spacing (18%), Layout (10%), Accessibility (25%), Naming (7%), Visual Quality (8%), Microcopy (7%).
  */
 function computeScoreBreakdown(result: LintResult): ScoreBreakdown {
   const total = result.summary.totalNodes || 1;
@@ -70,16 +70,26 @@ function computeScoreBreakdown(result: LintResult): ScoreBreakdown {
   );
   const naming = severityScore(namingErrors, total);
 
-  // Weighted average (30/20/10/30/10)
+  // Visual Quality
+  const visualQualityErrors = result.errors.filter(e => e.errorType === 'visualQuality');
+  const visualQuality = severityScore(visualQualityErrors, total);
+
+  // Microcopy
+  const microcopyErrors = result.errors.filter(e => e.errorType === 'microcopy');
+  const microcopy = severityScore(microcopyErrors, total);
+
+  // Weighted average (25/18/10/25/7/8/7)
   const overall = Math.round(
-    tokens.score * 0.30 +
-    spacing.score * 0.20 +
+    tokens.score * 0.25 +
+    spacing.score * 0.18 +
     layout.score * 0.10 +
-    accessibility.score * 0.30 +
-    naming.score * 0.10
+    accessibility.score * 0.25 +
+    naming.score * 0.07 +
+    visualQuality.score * 0.08 +
+    microcopy.score * 0.07
   );
 
-  return { overall, grade: getGrade(overall), tokens, spacing, layout, accessibility, naming };
+  return { overall, grade: getGrade(overall), tokens, spacing, layout, accessibility, naming, visualQuality, microcopy };
 }
 
 export interface ChatState {
@@ -331,7 +341,8 @@ export function useChat() {
       isAnalyzing: false,
       sessionId: data.sessionId,
       aiReview: data.aiReview,
-      messages: [...prev.messages, ...messages],
+      // Remove phase indicator messages, replace with actual results
+      messages: [...prev.messages.filter(m => m.message.kind !== 'analysis-phase'), ...messages],
     }));
   }, []);
 
@@ -417,6 +428,8 @@ function buildLintSummaryText(result: LintResult, score: ScoreBreakdown): string
   if (byType.spacing > 0) parts.push(`${byType.spacing} off-grid spacing`);
   if (byType.autoLayout > 0) parts.push(`${byType.autoLayout} missing auto-layout`);
   if (byType.accessibility > 0) parts.push(`${byType.accessibility} accessibility issues`);
+  if (byType.visualQuality > 0) parts.push(`${byType.visualQuality} visual quality issues`);
+  if (byType.microcopy > 0) parts.push(`${byType.microcopy} microcopy issues`);
 
   const fixable = result.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length;
 

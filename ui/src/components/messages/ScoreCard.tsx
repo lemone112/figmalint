@@ -58,11 +58,13 @@ export default function ScoreCard({ data }: ScoreCardProps) {
       </div>
 
       <div className="space-y-1">
-        <CategoryBar label="Tokens" weight="30%" score={data.tokens.score} failed={data.tokens.failed} />
-        <CategoryBar label="Spacing" weight="20%" score={data.spacing.score} failed={data.spacing.failed} />
+        <CategoryBar label="Tokens" weight="25%" score={data.tokens.score} failed={data.tokens.failed} />
+        <CategoryBar label="Spacing" weight="18%" score={data.spacing.score} failed={data.spacing.failed} />
         <CategoryBar label="Layout" weight="10%" score={data.layout.score} failed={data.layout.failed} />
-        <CategoryBar label="Accessibility" weight="30%" score={data.accessibility.score} failed={data.accessibility.failed} />
-        <CategoryBar label="Naming" weight="10%" score={data.naming.score} failed={data.naming.failed} />
+        <CategoryBar label="Accessibility" weight="25%" score={data.accessibility.score} failed={data.accessibility.failed} />
+        <CategoryBar label="Naming" weight="7%" score={data.naming.score} failed={data.naming.failed} />
+        <CategoryBar label="Visual Quality" weight="8%" score={data.visualQuality.score} failed={data.visualQuality.failed} />
+        <CategoryBar label="Microcopy" weight="7%" score={data.microcopy.score} failed={data.microcopy.failed} />
       </div>
     </div>
   );

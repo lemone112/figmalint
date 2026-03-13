@@ -43,6 +43,8 @@ import {
   ignoreError,
   ignoreAllOfType,
   clearIgnored,
+  getIgnoredState,
+  restoreIgnoredState,
   findNodesWithSameValue,
   DEFAULT_LINT_SETTINGS,
 } from '../core/design-lint';
@@ -983,26 +985,38 @@ function handleRunDesignLint(data?: any): void {
   sendMessageToUI('design-lint-result', result);
 }
 
+/** Persist ignored state to document-level plugin data so it survives restarts. */
+function persistIgnoredState(): void {
+  try {
+    const state = getIgnoredState();
+    figma.root.setPluginData('ignoredState', JSON.stringify(state));
+  } catch {
+    // Best-effort — don't break lint flow if persistence fails
+  }
+}
+
 function handleLintIgnoreNode(data: { nodeId: string }): void {
   ignoreNode(data.nodeId);
-  // Re-run lint to update results
+  persistIgnoredState();
   handleRunDesignLint();
 }
 
 function handleLintIgnoreError(data: { nodeId: string; errorType: string; value?: string }): void {
   ignoreError(data.nodeId, data.errorType as any, data.value);
+  persistIgnoredState();
   handleRunDesignLint();
 }
 
 function handleLintIgnoreAllOfType(data: { errorType: string }): void {
-  // Get current results first, then ignore all matching
   const result = lintSelection(currentLintSettings);
   ignoreAllOfType(result.errors, data.errorType as any);
+  persistIgnoredState();
   handleRunDesignLint();
 }
 
 function handleLintClearIgnored(): void {
   clearIgnored();
+  persistIgnoredState();
   handleRunDesignLint();
 }
 
@@ -1167,12 +1181,33 @@ async function handleExportScreenshot(data: { nodeId?: string }): Promise<void> 
     }
 
     const base64 = await exportScreenshot(node);
+    const hasAutoLayout = 'layoutMode' in node && node.layoutMode !== 'NONE';
+    const childCount = 'children' in node ? (node as FrameNode).children.length : 0;
+
+    // Extract token analysis summary for the AI review
+    let tokenSummary: { totalTokens: number; boundToVariables: number; boundToStyles: number; hardCoded: number } | undefined;
+    try {
+      const tokenData = await extractDesignTokensFromNode(node);
+      const allTokens = [...tokenData.colors, ...tokenData.spacing, ...tokenData.typography, ...tokenData.effects, ...tokenData.borders];
+      tokenSummary = {
+        totalTokens: allTokens.length,
+        boundToVariables: allTokens.filter(t => t.source === 'figma-variable').length,
+        boundToStyles: allTokens.filter(t => t.source === 'figma-style').length,
+        hardCoded: allTokens.filter(t => t.source === 'hard-coded').length,
+      };
+    } catch {
+      // Token extraction is best-effort — don't block screenshot
+    }
+
     sendMessageToUI('screenshot-result', {
       nodeId: node.id,
       nodeName: node.name,
       screenshot: base64,
       width: node.width,
       height: node.height,
+      hasAutoLayout,
+      childCount,
+      tokenSummary,
     });
   } catch (error) {
     console.warn('Could not export screenshot:', error);
@@ -1433,6 +1468,18 @@ export async function initializePlugin(): Promise<void> {
     }
 
     console.log(`Plugin initialized with provider: ${selectedProvider}, model: ${selectedModel}`);
+
+    // Restore persisted ignore state from document
+    try {
+      const raw = figma.root.getPluginData('ignoredState');
+      if (raw) {
+        const state = JSON.parse(raw);
+        restoreIgnoredState(state);
+        console.log(`Restored ${state.nodeIds?.length || 0} ignored nodes, ${state.errorKeys?.length || 0} ignored errors`);
+      }
+    } catch {
+      // Ignore parse errors — start fresh
+    }
 
     // Initialize design systems knowledge in background
     console.log('🔄 Initializing design systems knowledge...');

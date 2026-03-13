@@ -2,7 +2,7 @@
 // Message type definitions for Plugin ↔ UI communication
 // ──────────────────────────────────────────────
 
-export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility';
+export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy';
 
 export interface LintError {
   nodeId: string;
@@ -100,6 +100,8 @@ export interface EnhancedAnalysisResult {
 }
 
 // Chat message types for the UI
+export type AnalysisPhase = 'lint' | 'screenshot' | 'ai-review' | 'refero';
+
 export type ChatMessageType =
   | { kind: 'ai-text'; content: string; streaming?: boolean }
   | { kind: 'user-text'; content: string }
@@ -111,7 +113,8 @@ export type ChatMessageType =
   | { kind: 'batch-summary'; data: { total: number; applied: number; failed: number } }
   | { kind: 'score-update'; data: { oldScore: number; newScore: number; issuesRemaining: number } }
   | { kind: 'ai-review'; data: AiReviewData }
-  | { kind: 'refero-gallery'; data: ReferoComparisonData };
+  | { kind: 'refero-gallery'; data: ReferoComparisonData }
+  | { kind: 'analysis-phase'; phase: AnalysisPhase; done?: boolean };
 
 export type AiRating = 'pass' | 'needs_improvement' | 'fail';
 
@@ -126,6 +129,9 @@ export interface AiReviewData {
   statesCoverage: AiReviewCategory & { missingStates: string[] };
   platformAlignment: AiReviewCategory & { detectedPlatform: string };
   colorHarmony: AiReviewCategory;
+  visualBalance?: AiReviewCategory;
+  microcopyQuality?: AiReviewCategory;
+  cognitiveLoad?: AiReviewCategory;
   recommendations: Array<{ title: string; description: string; severity: string }>;
   summary: string;
 }
@@ -166,6 +172,8 @@ export interface ScoreBreakdown {
   layout: CategoryScore;
   accessibility: CategoryScore;
   naming: CategoryScore;
+  visualQuality: CategoryScore;
+  microcopy: CategoryScore;
 }
 
 export interface ActionButton {
@@ -193,7 +201,8 @@ export type PluginEvent =
   | { type: 'rescan-complete'; data: { totalErrors: number; nodesWithErrors: number } }
   | { type: 'api-key-status'; data: { hasKey: boolean; provider: string; model?: string } }
   | { type: 'api-key-saved'; data: { success: boolean } }
-  | { type: 'screenshot-result'; data: { nodeId: string; nodeName: string; screenshot: string; width: number; height: number } }
+  | { type: 'screenshot-result'; data: { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number } }
+  | { type: 'selection-changed'; data: { hasSelection: boolean; nodeId: string | null; nodeName: string | null } }
   | { type: string; data: unknown };
 
 // UI → Plugin message commands

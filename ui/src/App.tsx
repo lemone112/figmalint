@@ -14,6 +14,9 @@ export default function App() {
   const [backendAvailable, setBackendAvailable] = useState(false);
   const [analysisMode, setAnalysisMode] = useState<'quick' | 'deep'>('quick');
   const [showSettings, setShowSettings] = useState(false);
+  const [selectionStale, setSelectionStale] = useState(false);
+  const [currentNodeName, setCurrentNodeName] = useState<string | null>(null);
+  const analyzedNodeId = useRef<string | null>(null);
   const walkthroughIndex = useRef(0);
   const referoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingLintResult = useRef<LintResult | null>(null);
@@ -26,10 +29,7 @@ export default function App() {
   ) => {
     if (!backendAvailable) return;
 
-    chat.addMessage({
-      kind: 'ai-text',
-      content: 'Running AI visual analysis...',
-    });
+    chat.addMessage({ kind: 'analysis-phase', phase: 'ai-review' });
 
     try {
       const result = await analyzeComponent({
@@ -42,9 +42,10 @@ export default function App() {
             nodeType: 'FRAME',
             width: screenshot.width,
             height: screenshot.height,
-            hasAutoLayout: false,
-            childCount: 0,
+            hasAutoLayout: (screenshot as any).hasAutoLayout ?? false,
+            childCount: (screenshot as any).childCount ?? 0,
           },
+          tokenSummary: (screenshot as any).tokenSummary,
         },
         sessionId: chat.sessionId || undefined,
         mode: analysisMode,
@@ -146,8 +147,9 @@ export default function App() {
             // Rescan lint result will arrive via 'design-lint-result' — handled there
             break;
           case 'screenshot-result': {
-            const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number };
+            const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number };
             pendingScreenshot.current = ssData;
+            analyzedNodeId.current = ssData.nodeId;
             // If we have both lint result and screenshot, trigger backend analysis
             if (pendingLintResult.current && pendingScreenshot.current) {
               tryBackendAnalysis(pendingLintResult.current, pendingScreenshot.current);
@@ -169,6 +171,15 @@ export default function App() {
               chat.addMessage({ kind: 'ai-text', content: 'API key saved successfully.' });
             }
             break;
+          case 'selection-changed': {
+            const selData = event.data as { hasSelection: boolean; nodeId: string | null; nodeName: string | null };
+            setCurrentNodeName(selData.nodeName);
+            // Mark results as stale if we have results and selection changed to a different node
+            if (chat.lintResult && analyzedNodeId.current && selData.nodeId !== analyzedNodeId.current) {
+              setSelectionStale(true);
+            }
+            break;
+          }
         }
       },
       [chat, post, tryBackendAnalysis]
@@ -184,6 +195,7 @@ export default function App() {
   const handleAnalyze = useCallback(() => {
     chat.startAnalysis();
     walkthroughIndex.current = 0;
+    setSelectionStale(false);
     post('run-design-lint');
   }, [chat, post]);
 
@@ -215,27 +227,34 @@ export default function App() {
     (action: string, params?: Record<string, unknown>) => {
       switch (action) {
         case 'fix-all': {
-          // Collect all spacing errors and send as batch fix
-          const spacingErrors = chat.lintResult?.errors.filter(
-            (e: LintError) => e.errorType === 'spacing'
-          );
-          if (spacingErrors && spacingErrors.length > 0) {
+          const errors = chat.lintResult?.errors || [];
+          const fixes: Array<{ type: string; params: Record<string, unknown> }> = [];
+
+          // Spacing fixes
+          for (const err of errors) {
+            if (err.errorType === 'spacing' && err.property) {
+              fixes.push({
+                type: 'fixSpacingToNearest',
+                params: { nodeId: err.nodeId, property: err.property },
+              });
+            }
+          }
+
+          // Radius fixes
+          for (const err of errors) {
+            if (err.errorType === 'radius') {
+              fixes.push({
+                type: 'fixRadiusToNearest',
+                params: { nodeId: err.nodeId },
+              });
+            }
+          }
+
+          if (fixes.length > 0) {
             chat.addMessage({
               kind: 'ai-text',
-              content: `Fixing ${spacingErrors.length} spacing issue${spacingErrors.length !== 1 ? 's' : ''}...`,
+              content: `Fixing ${fixes.length} auto-fixable issue${fixes.length !== 1 ? 's' : ''} (spacing + radius)...`,
             });
-
-            // Build batch fix actions
-            const fixes = spacingErrors
-              .filter(err => err.property)
-              .map(err => ({
-                type: 'fixSpacingToNearest' as const,
-                params: {
-                  nodeId: err.nodeId,
-                  property: err.property!,
-                },
-              }));
-
             post('batch-fix-v2', { fixes });
           }
           break;
@@ -273,6 +292,14 @@ export default function App() {
               action: 'fix-single-spacing',
               params: { nodeId: issue.nodeId, property: issue.property },
             });
+          } else if (issue.errorType === 'radius') {
+            buttons.push({
+              id: `fix-radius-${issue.nodeId}`,
+              label: 'Fix radius to nearest',
+              variant: 'primary' as const,
+              action: 'fix-single-radius',
+              params: { nodeId: issue.nodeId },
+            });
           }
           buttons.push({
             id: `skip-${idx}`,
@@ -291,6 +318,15 @@ export default function App() {
             post('fix-spacing-to-nearest', {
               nodeId: params.nodeId,
               property: params.property,
+            });
+          }
+          break;
+        }
+
+        case 'fix-single-radius': {
+          if (params?.nodeId) {
+            post('batch-fix-v2', {
+              fixes: [{ type: 'fixRadiusToNearest', params: { nodeId: params.nodeId } }],
             });
           }
           break;
@@ -406,6 +442,21 @@ export default function App() {
         </div>
       )}
 
+      {/* Stale selection banner */}
+      {selectionStale && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-bg-warning text-fg-warning text-11 border-b border-border">
+          <span className="flex-1">
+            Selection changed{currentNodeName ? ` to "${currentNodeName}"` : ''}. Results may be stale.
+          </span>
+          <button
+            className="shrink-0 px-2 py-0.5 bg-bg-brand text-fg-onbrand text-11 font-medium rounded hover:opacity-90"
+            onClick={handleAnalyze}
+          >
+            Re-analyze
+          </button>
+        </div>
+      )}
+
       <ChatContainer
         state={chat}
         componentName={componentName}
@@ -445,6 +496,8 @@ function buildFullReport(
   if (byType.radius > 0) lines.push(`- **Border radius:** ${byType.radius} non-standard`);
   if (byType.spacing > 0) lines.push(`- **Spacing:** ${byType.spacing} off-grid`);
   if (byType.autoLayout > 0) lines.push(`- **Auto Layout:** ${byType.autoLayout} missing`);
+  if (byType.visualQuality > 0) lines.push(`- **Visual Quality:** ${byType.visualQuality} issues`);
+  if (byType.microcopy > 0) lines.push(`- **Microcopy:** ${byType.microcopy} issues`);
 
   // AI Review section (rubric-based)
   if (aiReview) {
@@ -455,6 +508,9 @@ function buildFullReport(
     lines.push(`| States Coverage | ${aiReview.statesCoverage.rating.toUpperCase()} |`);
     lines.push(`| Platform Alignment | ${aiReview.platformAlignment.rating.toUpperCase()} (${aiReview.platformAlignment.detectedPlatform}) |`);
     lines.push(`| Color Harmony | ${aiReview.colorHarmony.rating.toUpperCase()} |`);
+    if (aiReview.visualBalance) lines.push(`| Visual Balance | ${aiReview.visualBalance.rating.toUpperCase()} |`);
+    if (aiReview.microcopyQuality) lines.push(`| Microcopy Quality | ${aiReview.microcopyQuality.rating.toUpperCase()} |`);
+    if (aiReview.cognitiveLoad) lines.push(`| Cognitive Load | ${aiReview.cognitiveLoad.rating.toUpperCase()} |`);
 
     const missingStates = aiReview.statesCoverage?.missingStates || [];
     if (missingStates.length > 0) {

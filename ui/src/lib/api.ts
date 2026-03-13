@@ -34,6 +34,12 @@ export async function analyzeComponent(data: {
       hasAutoLayout: boolean;
       childCount: number;
     };
+    tokenSummary?: {
+      totalTokens: number;
+      boundToVariables: number;
+      boundToStyles: number;
+      hardCoded: number;
+    };
   };
   sessionId?: string;
   mode: 'quick' | 'deep';

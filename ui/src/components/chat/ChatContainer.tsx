@@ -69,7 +69,7 @@ export default function ChatContainer({
         {hasResults && (
           <QuickActions
             onAnalyze={onAnalyze}
-            hasFixable={(lintResult?.errors.filter(e => e.errorType === 'spacing').length || 0) > 0}
+            hasFixable={(lintResult?.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length || 0) > 0}
             analysisMode={analysisMode}
             onAction={handleAction}
           />

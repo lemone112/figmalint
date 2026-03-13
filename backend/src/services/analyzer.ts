@@ -101,11 +101,13 @@ export async function runAnalysis(req: AnalyzeRequest): Promise<AnalysisResult> 
 
   // Build component info
   const meta = req.extractedData.metadata;
+  const ts = req.extractedData.tokenSummary;
   const componentInfo = [
     `Name: ${req.extractedData.componentName}`,
     req.extractedData.componentDescription ? `Description: ${req.extractedData.componentDescription}` : '',
-    meta ? `Type: ${meta.nodeType}, Size: ${meta.width}x${meta.height}, Children: ${meta.childCount}` : '',
+    meta ? `Type: ${meta.nodeType}, Size: ${meta.width}x${meta.height}, Auto-layout: ${meta.hasAutoLayout ? 'yes' : 'no'}, Children: ${meta.childCount}` : '',
     req.extractedData.states?.length ? `States: ${req.extractedData.states.join(', ')}` : '',
+    ts ? `Design tokens: ${ts.totalTokens} total (${ts.boundToVariables} variables, ${ts.boundToStyles} styles, ${ts.hardCoded} hard-coded)` : '',
   ].filter(Boolean).join('\n');
 
   // Phase 1a: page type + design knowledge in parallel (both fast)
