@@ -14,7 +14,7 @@ function stripTags(text: string): string {
 /** Sanitize a single user string for prompt interpolation */
 export function sanitizeText(text: string, maxLen = MAX_TEXT_LENGTH): string {
   if (typeof text !== 'string') return '';
-  return stripTags(text).slice(0, maxLen);
+  return stripTags(text).trim().slice(0, maxLen);
 }
 
 /** Sanitize an array of user strings */
@@ -28,5 +28,6 @@ export function sanitizeTextArray(arr: unknown[], maxItems = MAX_ARRAY_ITEMS, ma
 
 /** Wrap user-supplied content in XML delimiters for clear prompt boundary */
 export function wrapUserContent(label: string, content: string): string {
-  return `<user_${label}>\n${sanitizeText(content)}\n</user_${label}>`;
+  const safeLabel = /^[A-Za-z0-9_-]+$/.test(label) ? label : 'content';
+  return `<user_${safeLabel}>\n${sanitizeText(content)}\n</user_${safeLabel}>`;
 }

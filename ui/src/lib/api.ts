@@ -38,7 +38,12 @@ function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = API_TIM
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024; // 10MB max screenshot
 
 function validateScreenshot(screenshot: string): void {
-  if (screenshot.length > MAX_SCREENSHOT_BYTES) {
+  // Strip data URI prefix if present
+  const base64Data = screenshot.replace(/^data:image\/\w+;base64,/, '');
+  // Base64 encodes 3 bytes into 4 chars; compute approximate decoded size
+  const padding = (base64Data.match(/=+$/) || [''])[0].length;
+  const decodedSize = Math.floor((base64Data.length * 3) / 4) - padding;
+  if (decodedSize > MAX_SCREENSHOT_BYTES) {
     throw new Error('Screenshot too large (max 10MB). Try selecting a smaller frame.');
   }
 }

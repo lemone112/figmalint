@@ -51,8 +51,10 @@ function createRateLimiter(maxRequests: number, windowMs: number): MiddlewareHan
  * Configurable via RATE_LIMIT_MAX and RATE_LIMIT_WINDOW_MS env vars.
  */
 export function rateLimit(): MiddlewareHandler {
-  const max = parseInt(process.env.RATE_LIMIT_MAX || '60', 10);
-  const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10);
+  const rawMax = parseInt(process.env.RATE_LIMIT_MAX || '60', 10);
+  const rawWindow = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10);
+  const max = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : 60;
+  const windowMs = Number.isFinite(rawWindow) && rawWindow > 0 ? rawWindow : 60000;
   return createRateLimiter(max, windowMs);
 }
 
@@ -61,7 +63,9 @@ export function rateLimit(): MiddlewareHandler {
  * Configurable via AI_RATE_LIMIT_MAX and AI_RATE_LIMIT_WINDOW_MS env vars.
  */
 export function aiRateLimit(): MiddlewareHandler {
-  const max = parseInt(process.env.AI_RATE_LIMIT_MAX || '15', 10);
-  const windowMs = parseInt(process.env.AI_RATE_LIMIT_WINDOW_MS || '60000', 10);
+  const rawMax = parseInt(process.env.AI_RATE_LIMIT_MAX || '15', 10);
+  const rawWindow = parseInt(process.env.AI_RATE_LIMIT_WINDOW_MS || '60000', 10);
+  const max = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : 15;
+  const windowMs = Number.isFinite(rawWindow) && rawWindow > 0 ? rawWindow : 60000;
   return createRateLimiter(max, windowMs);
 }

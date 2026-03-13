@@ -243,7 +243,7 @@ Versions ordered by creation time (updated Oct 2024). No dedicated branch diffin
 
 | Endpoint | Path | Scope |
 |----------|------|-------|
-| File Metadata | GET endpoint | `file_metadata:read` |
+| File Metadata | GET /v1/files/:key/meta | `file_metadata:read` |
 
 Returns metadata without file content (lighter weight).
 

@@ -1,10 +1,11 @@
 import type { MiddlewareHandler } from 'hono';
-import { timingSafeEqual as cryptoTimingSafeEqual } from 'node:crypto';
+import { timingSafeEqual as cryptoTimingSafeEqual, createHash } from 'node:crypto';
 
 /** Constant-time string comparison to prevent timing attacks */
 function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return cryptoTimingSafeEqual(Buffer.from(a), Buffer.from(b));
+  const digestA = createHash('sha256').update(a).digest();
+  const digestB = createHash('sha256').update(b).digest();
+  return cryptoTimingSafeEqual(digestA, digestB);
 }
 
 /**

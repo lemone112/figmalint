@@ -21,7 +21,10 @@ app.get('/session/:id', (c) => {
   try { lintResult = session.lint_result ? JSON.parse(session.lint_result) : null; } catch { /* corrupted */ }
   try { aiReview = session.ai_review ? JSON.parse(session.ai_review) : null; } catch { /* corrupted */ }
   try { referoData = session.refero_data ? JSON.parse(session.refero_data) : null; } catch { /* corrupted */ }
-  try { conversationLength = JSON.parse(session.conversation || '[]').length; } catch { /* corrupted */ }
+  try {
+    const parsed = JSON.parse(session.conversation || '[]');
+    conversationLength = Array.isArray(parsed) ? parsed.length : 0;
+  } catch { /* corrupted */ }
 
   return c.json({
     id: session.id,

@@ -19,17 +19,20 @@ app.post('/analyze-flow', async (c) => {
       return c.json({ error: 'Too many frames (max 50)' }, 400);
     }
     for (const frame of body.frames) {
-      if (!frame || typeof frame !== 'object' || !frame.id || !frame.name || typeof frame.width !== 'number' || typeof frame.height !== 'number') {
-        return c.json({ error: 'Each frame must have id, name, width, and height' }, 400);
+      if (!frame || typeof frame !== 'object' || typeof frame.id !== 'string' || typeof frame.name !== 'string' || !Number.isFinite(frame.width) || !Number.isFinite(frame.height)) {
+        return c.json({ error: 'Each frame must have id (string), name (string), width (number), and height (number)' }, 400);
       }
     }
     if (!body.screenshots || typeof body.screenshots !== 'object' || Object.keys(body.screenshots).length === 0) {
       return c.json({ error: 'Missing screenshots' }, 400);
     }
+    if (body.edges !== undefined && !Array.isArray(body.edges)) {
+      return c.json({ error: 'edges must be an array' }, 400);
+    }
     if (body.edges && Array.isArray(body.edges)) {
       for (const edge of body.edges) {
-        if (!edge || typeof edge !== 'object' || !edge.sourceFrameId || !edge.destinationFrameId) {
-          return c.json({ error: 'Each edge must have sourceFrameId and destinationFrameId' }, 400);
+        if (!edge || typeof edge !== 'object' || typeof edge.sourceFrameId !== 'string' || typeof edge.destinationFrameId !== 'string') {
+          return c.json({ error: 'Each edge must have sourceFrameId (string) and destinationFrameId (string)' }, 400);
         }
       }
     }
