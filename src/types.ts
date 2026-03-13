@@ -221,10 +221,23 @@ export type UIMessageType =
   | 'rescan-lint'
   | 'export-screenshot'
   | 'analyze-flow'
+  | 'analyze-page'
   | 'save-baseline'
   | 'load-baseline'
   | 'compare-baseline'
-  | 'delete-baseline';
+  | 'delete-baseline'
+  // Variable system & DTCG compliance
+  | 'collect-variables'
+  | 'check-dtcg-compliance'
+  // Dark mode validation
+  | 'compare-modes'
+  // Realtime lint
+  | 'enable-realtime-lint'
+  | 'disable-realtime-lint'
+  // Design debt
+  | 'calculate-design-debt'
+  // Extended lint checks (8 new modules)
+  | 'run-extended-lint';
 
 // Auto-fix Types
 export interface FixRequest {
@@ -376,7 +389,7 @@ export type TokenCategory = 'colors' | 'spacing' | 'typography' | 'effects' | 'b
 // Design Lint Types (deterministic, non-AI rules)
 // ──────────────────────────────────────────────
 
-export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy' | 'conversion' | 'cognitive';
+export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy' | 'conversion' | 'cognitive' | 'fittsLaw' | 'gestalt' | 'detachedInstance' | 'responsive';
 
 export interface LintError {
   nodeId: string;
@@ -419,6 +432,10 @@ export interface LintSettings {
   checkMicrocopy: boolean;
   checkConversion: boolean;
   checkCognitive: boolean;
+  checkFittsLaw: boolean;
+  checkGestalt: boolean;
+  checkDetachedInstances: boolean;
+  checkResponsive: boolean;
   allowedRadii: number[];
   skipLockedLayers: boolean;
   skipHiddenLayers: boolean;

@@ -4,11 +4,13 @@ import MessageList from './MessageList';
 import InputBar from './InputBar';
 import QuickActions from '../shared/QuickActions';
 import type { ChatState } from '../../hooks/useChat';
+import type { MiniScoreData } from '../../lib/messages';
 
 interface ChatContainerProps {
   state: ChatState;
   componentName?: string;
   analysisMode?: 'quick' | 'deep';
+  miniScore?: MiniScoreData | null;
   onAnalyze: () => void;
   onSendMessage: (text: string) => void;
   onAction: (action: string, params?: Record<string, unknown>) => void;
@@ -20,13 +22,14 @@ export default function ChatContainer({
   state,
   componentName,
   analysisMode,
+  miniScore,
   onAnalyze,
   onSendMessage,
   onAction,
   onJumpToNode,
   onOpenSettings,
 }: ChatContainerProps) {
-  const { messages, score, lintResult, isAnalyzing, issuesFixed, baselineMeta, lastDiff } = state;
+  const { messages, score, lintResult, isAnalyzing, issuesFixed, baselineMeta, lastDiff, prevScore } = state;
   const totalIssues = lintResult?.summary.totalErrors || 0;
   const hasResults = messages.length > 0;
 
@@ -50,6 +53,8 @@ export default function ChatContainer({
         totalIssues={totalIssues}
         issuesFixed={issuesFixed}
         lastDiff={lastDiff}
+        miniScore={miniScore}
+        prevScore={prevScore}
         onOpenSettings={onOpenSettings}
       />
 

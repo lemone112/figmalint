@@ -8,6 +8,15 @@ import AiReviewCard from '../messages/AiReviewCard';
 import ReferoGallery from '../messages/ReferoGallery';
 import FlowResultCard from '../messages/FlowResultCard';
 import DiffCard from '../messages/DiffCard';
+import PageSweepCard from '../messages/PageSweepCard';
+import DesignDebtCard from '../messages/DesignDebtCard';
+import DarkModeCard from '../messages/DarkModeCard';
+import A11ySpecCard from '../messages/A11ySpecCard';
+import TokenComplianceCard from '../messages/TokenComplianceCard';
+import BrandConsistencyCard from '../messages/BrandConsistencyCard';
+import CopyToneCard from '../messages/CopyToneCard';
+import PersonaResearchCard from '../messages/PersonaResearchCard';
+import AttentionHeatmapCard from '../messages/AttentionHeatmapCard';
 import ActionButtons from '../shared/ActionButtons';
 
 interface MessageListProps {
@@ -115,6 +124,24 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             return <FlowResultCard key={msg.id} data={m.data} onJumpToNode={onJumpToNode} />;
           case 'diff-result':
             return <DiffCard key={msg.id} data={m.data} />;
+          case 'page-sweep-result':
+            return <PageSweepCard key={msg.id} data={m.data} />;
+          case 'design-debt':
+            return <DesignDebtCard key={msg.id} data={m.data as any} />;
+          case 'dark-mode':
+            return <DarkModeCard key={msg.id} data={m.data as any} />;
+          case 'a11y-spec':
+            return <A11ySpecCard key={msg.id} data={m.data as any} />;
+          case 'token-compliance':
+            return <TokenComplianceCard key={msg.id} data={m.data as any} />;
+          case 'brand-consistency':
+            return <BrandConsistencyCard key={msg.id} data={m.data as any} />;
+          case 'copy-tone':
+            return <CopyToneCard key={msg.id} data={m.data as any} />;
+          case 'persona-research':
+            return <PersonaResearchCard key={msg.id} data={m.data as any} />;
+          case 'attention-heatmap':
+            return <AttentionHeatmapCard key={msg.id} data={m.data as any} />;
           case 'baseline-saved':
             return (
               <div key={msg.id} className="bg-bg-success rounded-xl px-3 py-2 text-12">

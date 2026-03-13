@@ -17,7 +17,12 @@ export type LintIssueType =
   | 'spacing'
   | 'autoLayout'
   | 'naming'
-  | 'accessibility';
+  | 'accessibility'
+  | 'fittsLaw'
+  | 'gestalt'
+  | 'detachedInstance'
+  | 'responsive'
+  | 'theme';
 
 export type LintSeverity = 'critical' | 'warning' | 'info';
 

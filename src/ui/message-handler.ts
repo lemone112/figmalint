@@ -41,8 +41,23 @@ import { fixSpacingToNearest, fixAllSpacingOnNode } from '../fix/fix-spacing';
 import { fixRadiusToNearest } from '../fix/fix-radius';
 import { renameLayerById } from '../fix/rename-layer';
 import { executeBatchFix, type BatchFixAction } from '../fix/batch';
+import { collectVariableSystem } from '../extract/variable-collector';
+import { parseDTCG } from '../baseline/dtcg-parser';
+import { checkTokenCompliance } from '../baseline/token-compliance';
+import { compareModes } from '../extract/mode-comparator';
+import { enableRealtimeLint, disableRealtimeLint } from '../lint/realtime-lint';
+import { calculateDesignDebt } from '../baseline/design-debt';
+import { checkLayoutSizing } from '../lint/layout-sizing';
+import { checkConstraints } from '../lint/constraints';
+import { checkTypography } from '../lint/typography';
+import { checkComponentProps } from '../lint/component-props';
+import { checkStyleAudit } from '../lint/style-audit';
+import { checkVariableScope } from '../lint/variable-scope';
+import { checkMultiTheme } from '../lint/multi-theme';
+import { checkGrid } from '../lint/grid-check';
 import {
   lintSelection,
+  runDesignLint,
   ignoreNode,
   ignoreError,
   ignoreAllOfType,
@@ -209,6 +224,9 @@ export async function handleUIMessage(msg: PluginMessage): Promise<void> {
       case 'analyze-flow':
         await handleAnalyzeFlow();
         break;
+      case 'analyze-page':
+        await handleAnalyzePage();
+        break;
       // Baseline & Diff handlers
       case 'save-baseline':
         handleSaveBaseline(data);
@@ -221,6 +239,32 @@ export async function handleUIMessage(msg: PluginMessage): Promise<void> {
         break;
       case 'delete-baseline':
         handleDeleteBaseline(data);
+        break;
+      // Variable system & DTCG compliance handlers
+      case 'collect-variables':
+        await handleCollectVariables();
+        break;
+      case 'check-dtcg-compliance':
+        await handleCheckDTCGCompliance(data);
+        break;
+      // Dark mode validation handler
+      case 'compare-modes':
+        await handleCompareModes(data);
+        break;
+      // Realtime lint handlers
+      case 'enable-realtime-lint':
+        handleEnableRealtimeLint(data);
+        break;
+      case 'disable-realtime-lint':
+        handleDisableRealtimeLint();
+        break;
+      // Design debt handler
+      case 'calculate-design-debt':
+        handleCalculateDesignDebt(data);
+        break;
+      // Extended lint checks (8 new modules)
+      case 'run-extended-lint':
+        await handleRunExtendedLint();
         break;
       default:
         console.warn('Unknown message type:', type);
@@ -1500,6 +1544,112 @@ async function handleAnalyzeFlow(): Promise<void> {
 }
 
 /**
+ * Whole-Page Sweep: iterate all top-level frames, lint + screenshot each,
+ * then post aggregated results back to the UI.
+ */
+async function handleAnalyzePage(): Promise<void> {
+  try {
+    const allChildren = figma.currentPage.children;
+
+    const frames = allChildren.filter(
+      (node): node is FrameNode | ComponentSetNode =>
+        node.type === 'FRAME' || node.type === 'COMPONENT_SET'
+    );
+
+    if (frames.length === 0) {
+      sendMessageToUI('analysis-error', { error: 'No top-level frames found on current page.' });
+      return;
+    }
+
+    const framesToAnalyze = frames.slice(0, 50);
+    const total = framesToAnalyze.length;
+
+    const { runDesignLint } = await import('../core/design-lint');
+
+    const frameResults: Array<{
+      id: string;
+      name: string;
+      screenshot: string;
+      lintResult: { summary: any; errors: any[] };
+      width: number;
+      height: number;
+    }> = [];
+
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const batch = framesToAnalyze.slice(i, i + BATCH_SIZE);
+      const promises = batch.map(async (frame, batchIdx) => {
+        const current = i + batchIdx + 1;
+
+        sendMessageToUI('page-sweep-progress', {
+          current,
+          total,
+          frameName: frame.name,
+        });
+
+        let lintResult: { summary: any; errors: any[] } = { summary: { totalErrors: 0, byType: {}, totalNodes: 0, nodesWithErrors: 0 }, errors: [] };
+        try {
+          lintResult = runDesignLint([frame as SceneNode], currentLintSettings);
+        } catch {
+          // Non-critical
+        }
+
+        let screenshot = '';
+        try {
+          screenshot = await exportScreenshot(frame as SceneNode, 800);
+        } catch {
+          // Non-critical
+        }
+
+        return {
+          id: frame.id,
+          name: frame.name,
+          screenshot,
+          lintResult: { summary: lintResult.summary, errors: lintResult.errors },
+          width: Math.round(frame.width),
+          height: Math.round(frame.height),
+        };
+      });
+
+      const batchResults = await Promise.all(promises);
+      frameResults.push(...batchResults);
+    }
+
+    let totalIssues = 0;
+    const issueTypeCounts: Record<string, { count: number; severity: string }> = {};
+
+    for (const fr of frameResults) {
+      totalIssues += fr.lintResult.summary.totalErrors || 0;
+      for (const err of fr.lintResult.errors) {
+        const key = err.errorType;
+        if (!issueTypeCounts[key]) {
+          issueTypeCounts[key] = { count: 0, severity: err.severity || 'warning' };
+        }
+        issueTypeCounts[key].count++;
+      }
+    }
+
+    const topIssues = Object.entries(issueTypeCounts)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 10)
+      .map(([type, { count, severity }]) => ({ type, count, severity }));
+
+    sendMessageToUI('page-sweep-result', {
+      frames: frameResults,
+      aggregated: {
+        totalFrames: total,
+        totalIssues,
+        topIssues,
+      },
+    });
+
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('analysis-error', { error: `Page sweep failed: ${msg}` });
+  }
+}
+
+/**
  * Initialize plugin with design systems knowledge
  */
 export async function initializePlugin(): Promise<void> {
@@ -1551,6 +1701,46 @@ export async function initializePlugin(): Promise<void> {
     console.log('Plugin initialized successfully');
   } catch (error) {
     console.error('Error initializing plugin:', error);
+  }
+}
+
+// ============================================================================
+// Ambient Quality Badge — quick lint on selection change
+// ============================================================================
+
+/**
+ * Run a lightweight lint on a single node and send a mini-score to the UI.
+ * Called from code.ts on selectionchange. Designed to be fast (single node, no AI).
+ */
+export function quickLintSelectedNode(): void {
+  const sel = figma.currentPage.selection;
+  if (sel.length === 0) return;
+
+  try {
+    const node = sel[0];
+    const result = runDesignLint([node], currentLintSettings);
+    const total = result.summary.totalNodes || 1;
+
+    // Quick severity-weighted score (simplified version of UI's computeScoreBreakdown)
+    const WEIGHT: Record<string, number> = { critical: 10, warning: 3, info: 1 };
+    const weightedFailed = result.errors.reduce((sum, e) => sum + (WEIGHT[e.severity || 'warning'] || 3), 0);
+    const weightedPassed = Math.max(0, total - result.errors.length) * 10;
+    const totalW = weightedPassed + weightedFailed;
+    const score = totalW > 0 ? Math.round((weightedPassed / totalW) * 100) : 100;
+
+    const topSeverity: string = result.errors.some(e => e.severity === 'critical') ? 'critical'
+      : result.errors.some(e => e.severity === 'warning') ? 'warning'
+      : result.errors.length > 0 ? 'info' : 'none';
+
+    sendMessageToUI('selection-mini-score', {
+      nodeId: node.id,
+      nodeName: node.name,
+      score,
+      issueCount: result.summary.totalErrors,
+      topSeverity,
+    });
+  } catch {
+    // Don't break the plugin if quick lint fails
   }
 }
 
@@ -2295,5 +2485,303 @@ async function handleAddComponentProperty(data: {
       message: errorMessage
     });
     figma.notify(`Failed to add property: ${errorMessage}`, { error: true });
+  }
+}
+
+// ──────────────────────────────────────────────
+// Variable System & DTCG Compliance Handlers
+// ──────────────────────────────────────────────
+
+async function handleCollectVariables(): Promise<void> {
+  try {
+    const report = await collectVariableSystem();
+    sendMessageToUI('variable-system-result', report);
+  } catch (error) {
+    console.error('Error collecting variables:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('variable-system-error', { error: errorMessage });
+  }
+}
+
+async function handleCheckDTCGCompliance(data: { dtcgJson?: string }): Promise<void> {
+  try {
+    // Collect the current variable system
+    const variableReport = await collectVariableSystem();
+
+    // Parse DTCG JSON if provided, otherwise run self-compliance (no external token file)
+    const dtcgTokens = data?.dtcgJson ? parseDTCG(data.dtcgJson) : [];
+
+    // Run compliance check
+    const result = checkTokenCompliance(variableReport, dtcgTokens, null);
+
+    sendMessageToUI('dtcg-compliance-result', result);
+  } catch (error) {
+    console.error('Error checking DTCG compliance:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('dtcg-compliance-error', { error: errorMessage });
+  }
+}
+
+// ──────────────────────────────────────────────
+// Dark Mode Validation Handler
+// ──────────────────────────────────────────────
+
+async function handleCompareModes(data: { collectionId?: string }): Promise<void> {
+  try {
+    let collectionId = data?.collectionId;
+    // Auto-detect first multi-mode collection when no ID provided
+    if (!collectionId) {
+      const collections = await figma.variables.getLocalVariableCollectionsAsync();
+      const multiMode = collections.find(c => c.modes.length >= 2);
+      if (!multiMode) {
+        sendMessageToUI('mode-comparison-error', { error: 'No collections with multiple modes found. Create light/dark modes first.' });
+        return;
+      }
+      collectionId = multiMode.id;
+    }
+    const modeData = await compareModes(collectionId);
+
+    // Send raw mode comparison data (existing contract)
+    sendMessageToUI('mode-comparison-result', modeData);
+
+    // Also send a DarkModeCard-compatible transform so the UI can render the card
+    const darkModeCardData = transformModeToDarkModeCard(modeData);
+    sendMessageToUI('dark-mode-card-result', darkModeCardData);
+  } catch (error) {
+    console.error('Error comparing modes:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('mode-comparison-error', { error: errorMessage });
+  }
+}
+
+/**
+ * Transform ModeComparisonData into the shape expected by DarkModeCard:
+ *   { issues[], metrics, summary }
+ */
+function transformModeToDarkModeCard(modeData: {
+  collection: string;
+  modes: Array<{ modeId: string; modeName: string }>;
+  variableDiffs: Array<{ variableName: string; type: string; values: Record<string, unknown> }>;
+  missingValues: Array<{ variableName: string; missingModes: string[] }>;
+}): {
+  issues: Array<{ type: string; severity: string; nodeName: string; message: string; currentValue?: string; suggestions?: string[] }>;
+  metrics: { pureBlackBackgrounds: number; pureWhiteText: number; lowContrastOnDark: number; missingModeValues: number };
+  summary: { totalChecked: number; passed: number; failed: number };
+} {
+  const issues: Array<{ type: string; severity: string; nodeName: string; message: string; currentValue?: string; suggestions?: string[] }> = [];
+  let pureBlackBackgrounds = 0;
+  let pureWhiteText = 0;
+  let lowContrastOnDark = 0;
+
+  // Analyse variable diffs for dark-mode-specific issues
+  for (const diff of modeData.variableDiffs) {
+    if (diff.type !== 'COLOR') continue;
+
+    for (const [modeName, value] of Object.entries(diff.values)) {
+      const strVal = String(value).toLowerCase();
+      const isDarkMode = /dark/i.test(modeName);
+
+      if (isDarkMode) {
+        // Pure black background check
+        if (strVal === '#000000' || strVal === 'rgb(0, 0, 0)') {
+          pureBlackBackgrounds++;
+          if (/bg|background|surface/i.test(diff.variableName)) {
+            issues.push({
+              type: 'pure-black',
+              severity: 'warning',
+              nodeName: diff.variableName,
+              message: `Pure black (#000000) used for background in ${modeName}`,
+              currentValue: strVal,
+              suggestions: ['Use #121212 or #1a1a1a for softer dark backgrounds'],
+            });
+          }
+        }
+
+        // Pure white text check
+        if (strVal === '#ffffff' || strVal === 'rgb(255, 255, 255)') {
+          if (/fg|foreground|text|on/i.test(diff.variableName)) {
+            pureWhiteText++;
+            issues.push({
+              type: 'pure-white',
+              severity: 'info',
+              nodeName: diff.variableName,
+              message: `Pure white (#ffffff) text in ${modeName} — can cause eye strain`,
+              currentValue: strVal,
+              suggestions: ['Use #e0e0e0 or #f0f0f0 for softer text on dark backgrounds'],
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Missing mode values
+  const missingModeValues = modeData.missingValues.length;
+  for (const mv of modeData.missingValues) {
+    issues.push({
+      type: 'missing-mode',
+      severity: 'critical',
+      nodeName: mv.variableName,
+      message: `Missing values for modes: ${mv.missingModes.join(', ')}`,
+      suggestions: [`Add values for: ${mv.missingModes.join(', ')}`],
+    });
+  }
+
+  const totalChecked = modeData.variableDiffs.length + modeData.missingValues.length;
+  const failed = issues.length;
+
+  return {
+    issues,
+    metrics: {
+      pureBlackBackgrounds,
+      pureWhiteText,
+      lowContrastOnDark,
+      missingModeValues,
+    },
+    summary: {
+      totalChecked,
+      passed: Math.max(0, totalChecked - failed),
+      failed,
+    },
+  };
+}
+
+// ============================================================================
+// Realtime Lint Handlers
+// ============================================================================
+
+/**
+ * Enable real-time incremental linting via documentchange events.
+ */
+function handleEnableRealtimeLint(data: { debounceMs?: number; settings?: LintSettings }): void {
+  const settings = data.settings || DEFAULT_LINT_SETTINGS;
+  enableRealtimeLint({
+    enabled: true,
+    debounceMs: data.debounceMs || 500,
+    settings,
+  });
+}
+
+/**
+ * Disable real-time incremental linting.
+ */
+function handleDisableRealtimeLint(): void {
+  disableRealtimeLint();
+}
+
+// ============================================================================
+// Design Debt Handler
+// ============================================================================
+
+/**
+ * Calculate design debt score from lint results and token summary.
+ * Transforms the DesignDebtScore shape to match DesignDebtCard props:
+ *   components values are plain counts (not { count, score } objects),
+ *   trend.direction maps 'degrading' -> 'declining' for the UI.
+ */
+function handleCalculateDesignDebt(data: {
+  lintResult: {
+    errors: Array<{ errorType: string; severity?: string; nodeId: string; nodeName: string; message: string; value: string; path: string; property?: string }>;
+    summary: { totalErrors: number; byType: Record<string, number>; totalNodes: number; nodesWithErrors: number };
+  };
+  tokenSummary?: { totalTokens: number; actualTokens: number; hardCodedValues: number; aiSuggestions: number };
+}): void {
+  const score = calculateDesignDebt(data.lintResult, data.tokenSummary || null);
+
+  // Transform to DesignDebtCard-compatible shape
+  const cardData: {
+    overall: number;
+    components: {
+      orphanedStyles: number;
+      detachedInstances: number;
+      hardcodedValues: number;
+      namingViolations: number;
+      missingAutoLayout: number;
+      inconsistentSpacing: number;
+    };
+    trend?: {
+      direction: 'improving' | 'declining' | 'stable';
+      delta: number;
+    };
+  } = {
+    overall: score.overall,
+    components: {
+      orphanedStyles: score.components.orphanedStyles.count,
+      detachedInstances: score.components.detachedInstances.count,
+      hardcodedValues: score.components.hardcodedValues.count,
+      namingViolations: score.components.namingViolations.count,
+      missingAutoLayout: score.components.missingAutoLayout.count,
+      inconsistentSpacing: score.components.inconsistentSpacing.count,
+    },
+  };
+
+  if (score.trend) {
+    cardData.trend = {
+      direction: score.trend.direction === 'degrading' ? 'declining' : score.trend.direction,
+      delta: Math.abs(score.trend.delta),
+    };
+  }
+
+  sendMessageToUI('design-debt-result', cardData);
+}
+
+// ============================================================================
+// Extended Lint Handler (8 new modules)
+// ============================================================================
+
+/**
+ * Run all 8 extended lint modules on the current selection and send aggregated
+ * results to the UI as 'extended-lint-result'.
+ *
+ * Sync modules (layout-sizing, constraints, typography, component-props) run
+ * immediately; async modules (style-audit, variable-scope, multi-theme,
+ * grid-check) run via Promise.allSettled.
+ */
+async function handleRunExtendedLint(): Promise<void> {
+  try {
+    const selection = figma.currentPage.selection;
+    if (selection.length === 0) {
+      sendMessageToUI('extended-lint-error', { error: 'No nodes selected. Select a frame or component to run extended lint.' });
+      return;
+    }
+
+    const nodes: readonly SceneNode[] = selection;
+
+    // ── Sync modules ──
+    const layoutSizing = checkLayoutSizing(nodes);
+    const constraints = checkConstraints(nodes);
+    const typography = checkTypography(nodes);
+    const componentProps = checkComponentProps(nodes);
+
+    // ── Async modules ──
+    const [styleAuditResult, variableScopeResult, multiThemeResult, gridCheckResult] =
+      await Promise.allSettled([
+        checkStyleAudit(nodes),
+        checkVariableScope(nodes),
+        checkMultiTheme(nodes),
+        checkGrid(nodes),
+      ]);
+
+    // Unwrap settled results — use empty result on rejection
+    const emptyIssues = { issues: [] as unknown[], summary: {} };
+    const styleAudit = styleAuditResult.status === 'fulfilled' ? styleAuditResult.value : emptyIssues;
+    const variableScope = variableScopeResult.status === 'fulfilled' ? variableScopeResult.value : emptyIssues;
+    const multiTheme = multiThemeResult.status === 'fulfilled' ? multiThemeResult.value : emptyIssues;
+    const gridCheck = gridCheckResult.status === 'fulfilled' ? gridCheckResult.value : emptyIssues;
+
+    sendMessageToUI('extended-lint-result', {
+      layoutSizing,
+      constraints,
+      typography,
+      componentProps,
+      styleAudit,
+      variableScope,
+      multiTheme,
+      gridCheck,
+    });
+  } catch (error) {
+    console.error('Error running extended lint:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('extended-lint-error', { error: errorMessage });
   }
 }

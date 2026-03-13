@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import ChatContainer from './components/chat/ChatContainer';
 import SettingsPanel from './components/shared/SettingsPanel';
+import TeamConfigPanel from './components/shared/TeamConfigPanel';
 import { useChat } from './hooks/useChat';
 import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
-import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData } from './lib/messages';
-import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow } from './lib/api';
+import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData, PageSweepData, PageSweepRawData, MiniScoreData } from './lib/messages';
+import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow, analyzePageSweep } from './lib/api';
 
 export default function App() {
   const chat = useChat();
@@ -14,14 +15,18 @@ export default function App() {
   const [backendAvailable, setBackendAvailable] = useState(false);
   const [analysisMode, setAnalysisMode] = useState<'quick' | 'deep'>('quick');
   const [showSettings, setShowSettings] = useState(false);
+  const [showTeamConfig, setShowTeamConfig] = useState(false);
+  const [teamConfig, setTeamConfig] = useState<Record<string, unknown> | undefined>(undefined);
   const [selectionStale, setSelectionStale] = useState(false);
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null);
+  const [miniScore, setMiniScore] = useState<MiniScoreData | null>(null);
   const analyzedNodeId = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const walkthroughIndex = useRef(0);
   const referoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingLintResult = useRef<LintResult | null>(null);
   const pendingScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number } | null>(null);
+  const pageSweepRequestId = useRef(0);
 
   // Try to send lint + screenshot to backend for AI analysis
   const tryBackendAnalysis = useCallback(async (
@@ -243,12 +248,157 @@ export default function App() {
             }
             break;
           }
+          case 'page-sweep-progress': {
+            const prog = event.data as { current: number; total: number; frameName: string };
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Sweeping page: ${prog.current}/${prog.total} - "${prog.frameName}"...`,
+            });
+            break;
+          }
+          case 'page-sweep-result': {
+            const sweepData = event.data as PageSweepRawData;
+            const requestId = ++pageSweepRequestId.current;
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Page sweep complete: ${sweepData.frames.length} frames analyzed. ${backendAvailable ? 'Running AI analysis...' : 'Backend unavailable, showing deterministic results.'}`,
+            });
+
+            if (backendAvailable) {
+              analyzePageSweep({
+                frames: sweepData.frames,
+              }).then((result) => {
+                if (pageSweepRequestId.current !== requestId) return;
+                chat.addMessage({ kind: 'page-sweep-result', data: result as PageSweepData });
+              }).catch((err) => {
+                if (pageSweepRequestId.current !== requestId) return;
+                chat.addMessage({
+                  kind: 'ai-text',
+                  content: `AI page analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}. Showing deterministic results.`,
+                });
+                const deterministicResult = buildDeterministicSweepResult(sweepData);
+                chat.addMessage({ kind: 'page-sweep-result', data: deterministicResult });
+              });
+            } else {
+              if (pageSweepRequestId.current !== requestId) break;
+              const deterministicResult = buildDeterministicSweepResult(sweepData);
+              chat.addMessage({ kind: 'page-sweep-result', data: deterministicResult });
+            }
+            break;
+          }
           case 'selection-changed': {
             const selData = event.data as { hasSelection: boolean; nodeId: string | null; nodeName: string | null };
             setCurrentNodeName(selData.nodeName);
+            // Clear mini-score when selection clears
+            if (!selData.hasSelection) setMiniScore(null);
             // Mark results as stale if selection differs from analyzed node; clear if it matches again
             if (chat.lintResult && analyzedNodeId.current) {
               setSelectionStale(selData.nodeId !== analyzedNodeId.current);
+            }
+            break;
+          }
+          case 'selection-mini-score': {
+            setMiniScore(event.data as MiniScoreData);
+            break;
+          }
+
+          // ── New analysis feature events ────────────────────
+
+          case 'design-debt-result': {
+            chat.addMessage({ kind: 'design-debt', data: event.data });
+            break;
+          }
+
+          case 'dark-mode-card-result': {
+            chat.addMessage({ kind: 'dark-mode', data: event.data });
+            break;
+          }
+
+          case 'mode-comparison-result': {
+            // Raw mode data — show text summary (card comes via dark-mode-card-result)
+            const modeRaw = event.data as { collection: string; variableDiffs: unknown[]; missingValues: unknown[] };
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Mode comparison for "${modeRaw.collection}": ${(modeRaw.variableDiffs as unknown[]).length} variable diffs, ${(modeRaw.missingValues as unknown[]).length} missing values.`,
+            });
+            break;
+          }
+
+          case 'mode-comparison-error': {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Dark mode comparison failed: ${(event.data as { error: string }).error}`,
+            });
+            break;
+          }
+
+          case 'dtcg-compliance-result': {
+            chat.addMessage({ kind: 'token-compliance', data: event.data });
+            break;
+          }
+
+          case 'dtcg-compliance-error': {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Token compliance check failed: ${(event.data as { error: string }).error}`,
+            });
+            break;
+          }
+
+          case 'variable-system-result': {
+            const report = event.data as { totalVariables: number; unusedVariables: string[]; adoptionRate: number; collections: unknown[] };
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `**Variable System Report**\n- Total variables: ${report.totalVariables}\n- Adoption rate: ${Math.round(report.adoptionRate * 100)}%\n- Unused variables: ${report.unusedVariables.length}\n- Collections: ${report.collections.length}`,
+            });
+            break;
+          }
+
+          case 'variable-system-error': {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Variable collection failed: ${(event.data as { error: string }).error}`,
+            });
+            break;
+          }
+
+          case 'extended-lint-result': {
+            const extResult = event.data as Record<string, { issues?: unknown[] }>;
+            const totalIssues = Object.values(extResult).reduce(
+              (sum, r) => sum + (r?.issues?.length ?? 0), 0
+            );
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `**Extended lint complete** — ${totalIssues} issue${totalIssues !== 1 ? 's' : ''} across ${Object.keys(extResult).length} modules.`,
+            });
+            break;
+          }
+
+          case 'extended-lint-error': {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Extended lint failed: ${(event.data as { error: string }).error}`,
+            });
+            break;
+          }
+
+          case 'team-config-loaded': {
+            const payload = event.data as { config: Record<string, unknown> | null; settings: unknown };
+            if (payload.config) {
+              setTeamConfig(payload.config);
+              chat.addMessage({ kind: 'ai-text', content: 'Team config loaded from file.' });
+            } else {
+              chat.addMessage({ kind: 'ai-text', content: 'No team config found in this file.' });
+            }
+            break;
+          }
+
+          case 'team-config-saved': {
+            const saveResult = event.data as { success: boolean; error?: string };
+            if (saveResult.success) {
+              chat.addMessage({ kind: 'ai-text', content: 'Team config saved to file.' });
+            } else {
+              chat.addMessage({ kind: 'ai-text', content: `Failed to save team config: ${saveResult.error || 'Unknown error'}` });
             }
             break;
           }
@@ -557,6 +707,12 @@ export default function App() {
           break;
         }
 
+        case 'analyze-page': {
+          chat.addMessage({ kind: 'ai-text', content: 'Starting whole-page sweep...' });
+          post('analyze-page');
+          break;
+        }
+
         case 'toggle-mode': {
           const next = analysisMode === 'quick' ? 'deep' : 'quick';
           setAnalysisMode(next);
@@ -564,6 +720,36 @@ export default function App() {
             kind: 'ai-text',
             content: `Analysis mode: **${next}**. ${next === 'deep' ? 'Refero comparison will be included in the initial response.' : 'Refero data loads in the background.'}`,
           });
+          break;
+        }
+
+        // ── New analysis feature actions ────────────────────
+
+        case 'design-debt': {
+          if (!chat.lintResult) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to calculate design debt.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Calculating design debt...' });
+          post('calculate-design-debt', {
+            lintResult: {
+              errors: chat.lintResult.errors,
+              summary: chat.lintResult.summary,
+            },
+          });
+          break;
+        }
+
+        case 'dark-mode': {
+          chat.addMessage({ kind: 'ai-text', content: 'Comparing variable modes...' });
+          post('compare-modes');
+          break;
+        }
+
+        case 'token-audit': {
+          chat.addMessage({ kind: 'ai-text', content: 'Running token audit (DTCG compliance + variable collection)...' });
+          post('check-dtcg-compliance');
+          post('collect-variables');
           break;
         }
       }
@@ -596,6 +782,14 @@ export default function App() {
         />
       )}
 
+      {/* Team config panel (overlay) */}
+      {showTeamConfig && (
+        <TeamConfigPanel
+          initialConfig={teamConfig as any}
+          onClose={() => setShowTeamConfig(false)}
+        />
+      )}
+
       {/* Top analyze bar (shown when no results yet) */}
       {chat.messages.length === 0 && !chat.isAnalyzing && (
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
@@ -610,6 +804,25 @@ export default function App() {
             onClick={() => handleAction('analyze-flow')}
           >
             Analyze Flow
+          </button>
+          <button
+            className="flex-1 py-2 bg-bg-secondary text-fg text-12 font-medium rounded-md hover:bg-bg-hover transition-colors border border-border"
+            onClick={() => handleAction('analyze-page')}
+            title="Sweep all top-level frames on the page"
+          >
+            Sweep Page
+          </button>
+          <button
+            onClick={() => setShowTeamConfig(true)}
+            className="shrink-0 w-8 h-8 flex items-center justify-center text-fg-tertiary hover:text-fg rounded-md hover:bg-bg-hover transition-colors"
+            title="Team Config"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
           </button>
           <button
             onClick={() => setShowSettings(true)}
@@ -643,6 +856,7 @@ export default function App() {
         state={chat}
         componentName={componentName}
         analysisMode={analysisMode}
+        miniScore={miniScore}
         onAnalyze={handleAnalyze}
         onSendMessage={handleSendMessage}
         onAction={handleAction}
@@ -746,4 +960,68 @@ function buildFullReport(
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Build a deterministic PageSweepData from plugin-side sweep results (no AI).
+ */
+function buildDeterministicSweepResult(sweepData: PageSweepRawData): PageSweepData {
+  const SEVERITY_WEIGHT: Record<string, number> = { critical: 10, warning: 3, info: 1 };
+
+  const frameResults = sweepData.frames.map((frame) => {
+    const errors = frame.lintResult.errors;
+    const total = Math.max(frame.lintResult.summary.totalNodes, 1);
+    const weightedFailed = errors.reduce((sum, e) => sum + (SEVERITY_WEIGHT[e.severity || 'warning'] || 3), 0);
+    const weightedPassed = Math.max(0, total - errors.length) * 10;
+    const t = weightedPassed + weightedFailed;
+    const score = t > 0 ? Math.round((weightedPassed / t) * 100) : 100;
+
+    const typeCounts: Record<string, number> = {};
+    for (const err of errors) {
+      typeCounts[err.errorType] = (typeCounts[err.errorType] || 0) + 1;
+    }
+    const topIssues = Object.entries(typeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([type, count]) => `${type} (${count})`);
+
+    return {
+      id: frame.id,
+      name: frame.name,
+      score,
+      issueCount: frame.lintResult.summary.totalErrors,
+      topIssues,
+    };
+  });
+
+  const scores = frameResults.map((f) => f.score);
+  const overallScore = scores.length > 0
+    ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+    : 100;
+
+  const mean = overallScore;
+  const variance = scores.length > 0
+    ? scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length
+    : 0;
+  const consistencyScore = Math.max(0, Math.round(100 - Math.sqrt(variance)));
+
+  const grade = overallScore >= 90 ? 'excellent' : overallScore >= 70 ? 'needs-work' : 'poor';
+
+  return {
+    fileHealth: {
+      overallScore,
+      grade,
+      totalFrames: sweepData.aggregated.totalFrames,
+      totalIssues: sweepData.aggregated.totalIssues,
+      topIssues: sweepData.aggregated.topIssues,
+      consistencyScore,
+    },
+    frames: frameResults,
+    aiInsights: {
+      strengths: [],
+      weaknesses: [],
+      recommendations: [],
+      summary: 'AI analysis unavailable. Scores are based on deterministic lint rules only.',
+    },
+  };
 }

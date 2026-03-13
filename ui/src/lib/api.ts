@@ -207,6 +207,56 @@ export async function checkHealth(): Promise<boolean> {
 }
 
 /**
+ * POST /api/analyze-page — whole-page sweep analysis.
+ */
+export async function analyzePageSweep(data: {
+  frames: Array<{
+    id: string;
+    name: string;
+    screenshot: string;
+    lintResult: { summary: unknown; errors: unknown[] };
+    width: number;
+    height: number;
+  }>;
+  sessionId?: string;
+}): Promise<{
+  fileHealth: {
+    overallScore: number;
+    grade: string;
+    totalFrames: number;
+    totalIssues: number;
+    topIssues: Array<{ type: string; count: number; severity: string }>;
+    consistencyScore: number;
+  };
+  frames: Array<{
+    id: string;
+    name: string;
+    score: number;
+    issueCount: number;
+    topIssues: string[];
+  }>;
+  aiInsights: {
+    strengths: string[];
+    weaknesses: string[];
+    recommendations: Array<{ title: string; description: string; affectedFrames: string[] }>;
+    summary: string;
+  };
+}> {
+  const resp = await fetch(`${backendUrl}/api/analyze-page`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || 'Page sweep analysis failed');
+  }
+
+  return resp.json();
+}
+
+/**
  * POST /api/analyze-flow — multi-frame AI flow analysis.
  */
 export async function analyzeFlow(data: {
@@ -243,6 +293,188 @@ export async function analyzeFlow(data: {
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: resp.statusText }));
     throw new Error(err.error || 'Flow analysis failed');
+  }
+
+  return resp.json();
+}
+
+// ── New Analysis Routes ──────────────────────────────────────
+
+/**
+ * POST /api/brand-consistency — brand guide compliance analysis.
+ */
+export async function analyzeBrandConsistency(data: {
+  screenshot: string;
+  brandGuide: {
+    colors: Record<string, { hex: string; tolerance: number; usage: string }>;
+    typography: {
+      heading: { family: string; weights: number[] };
+      body: { family: string; weights: number[] };
+    };
+    spacing: { base: number; scale: number[] };
+    personality: string[];
+    rules?: Array<{ id: string; description: string; severity: 'error' | 'warning' }>;
+  };
+  lintResult?: unknown;
+  sessionId?: string;
+}): Promise<{
+  success: boolean;
+  brandConsistency: {
+    overallScore: number;
+    colorCompliance: {
+      score: number;
+      violations: Array<{ element: string; found: string; expected: string; tolerance: number }>;
+    };
+    typographyCompliance: {
+      score: number;
+      violations: Array<{ element: string; found: string; expected: string }>;
+    };
+    spacingCompliance: { score: number };
+    personalityMatch: { rating: 'strong' | 'moderate' | 'weak'; evidence: string[] };
+    recommendations: Array<{ title: string; description: string; severity: string }>;
+    summary: string;
+  };
+}> {
+  const resp = await fetch(`${backendUrl}/api/brand-consistency`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || 'Brand consistency analysis failed');
+  }
+
+  return resp.json();
+}
+
+/**
+ * POST /api/copy-tone — copy and tone analysis across screens.
+ */
+export async function analyzeCopyTone(data: {
+  screens: Array<{ name: string; textContent: string[] }>;
+  personality?: string[];
+  sessionId?: string;
+}): Promise<{
+  success: boolean;
+  copyTone: unknown;
+}> {
+  const resp = await fetch(`${backendUrl}/api/copy-tone`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || 'Copy tone analysis failed');
+  }
+
+  return resp.json();
+}
+
+/**
+ * POST /api/persona-research — persona-based UX research analysis.
+ */
+export async function analyzePersonaResearch(data: {
+  screenshot: string;
+  taskDescription: string;
+  lintContext?: string;
+  sessionId?: string;
+}): Promise<{
+  success: boolean;
+  personaResearch: unknown;
+}> {
+  const resp = await fetch(`${backendUrl}/api/persona-research`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || 'Persona research failed');
+  }
+
+  return resp.json();
+}
+
+/**
+ * POST /api/generate-a11y-spec — accessibility specification generation.
+ */
+export async function generateA11ySpec(data: {
+  screenshot: string;
+  extractedData: {
+    componentName: string;
+    componentDescription?: string;
+    properties?: Array<{ name: string; type: string }>;
+    states?: string[];
+    metadata?: {
+      nodeId: string;
+      nodeType: string;
+      width: number;
+      height: number;
+      hasAutoLayout: boolean;
+      childCount: number;
+    };
+  };
+  lintResult: {
+    summary: {
+      totalErrors: number;
+      byType: Record<string, number>;
+      totalNodes: number;
+      nodesWithErrors: number;
+    };
+    errors: Array<{
+      nodeId: string;
+      nodeName: string;
+      errorType: string;
+      message: string;
+      value: string;
+    }>;
+  };
+  sessionId?: string;
+}): Promise<{
+  success: boolean;
+  spec: {
+    landmarks: Array<{ role: string; label: string; element: string }>;
+    headingStructure: Array<{ level: number; text: string; element: string }>;
+    focusOrder: Array<{ order: number; element: string; type: string; notes: string }>;
+    ariaAnnotations: Array<{
+      element: string;
+      role: string;
+      ariaLabel?: string;
+      ariaDescribedBy?: string;
+      ariaLive?: string;
+      notes: string;
+    }>;
+    keyboardShortcuts: Array<{ key: string; action: string; element: string }>;
+    liveRegions: Array<{ element: string; type: 'polite' | 'assertive'; trigger: string }>;
+    colorContrastReport: Array<{
+      element: string;
+      foreground: string;
+      background: string;
+      ratio: number;
+      passes: 'AA' | 'AAA' | 'fail';
+    }>;
+    recommendations: Array<{
+      title: string;
+      description: string;
+      wcagCriterion: string;
+      level: 'A' | 'AA' | 'AAA';
+    }>;
+  };
+}> {
+  const resp = await fetch(`${backendUrl}/api/generate-a11y-spec`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || 'Accessibility spec generation failed');
   }
 
   return resp.json();

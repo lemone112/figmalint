@@ -2,7 +2,7 @@
 // Message type definitions for Plugin ↔ UI communication
 // ──────────────────────────────────────────────
 
-export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy' | 'conversion' | 'cognitive';
+export type LintErrorType = 'fill' | 'stroke' | 'effect' | 'text' | 'radius' | 'spacing' | 'autoLayout' | 'accessibility' | 'visualQuality' | 'microcopy' | 'conversion' | 'cognitive' | 'fittsLaw' | 'gestalt' | 'detachedInstance' | 'responsive';
 
 export interface LintError {
   nodeId: string;
@@ -117,7 +117,16 @@ export type ChatMessageType =
   | { kind: 'analysis-phase'; phase: AnalysisPhase; done?: boolean }
   | { kind: 'flow-result'; data: FlowAnalysisData }
   | { kind: 'diff-result'; data: DiffResultData }
-  | { kind: 'baseline-saved'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } };
+  | { kind: 'baseline-saved'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } }
+  | { kind: 'page-sweep-result'; data: PageSweepData }
+  | { kind: 'design-debt'; data: unknown }
+  | { kind: 'dark-mode'; data: unknown }
+  | { kind: 'a11y-spec'; data: unknown }
+  | { kind: 'token-compliance'; data: unknown }
+  | { kind: 'brand-consistency'; data: unknown }
+  | { kind: 'copy-tone'; data: unknown }
+  | { kind: 'persona-research'; data: unknown }
+  | { kind: 'attention-heatmap'; data: unknown };
 
 export type AiRating = 'pass' | 'needs_improvement' | 'fail';
 
@@ -195,6 +204,15 @@ export interface ChatMessage {
   message: ChatMessageType;
 }
 
+// Ambient quality badge data — sent on every selection change
+export interface MiniScoreData {
+  nodeId: string;
+  nodeName: string;
+  score: number;
+  issueCount: number;
+  topSeverity: 'critical' | 'warning' | 'info' | 'none';
+}
+
 // Plugin → UI message events
 export type PluginEvent =
   | { type: 'design-lint-result'; data: LintResult }
@@ -214,7 +232,23 @@ export type PluginEvent =
   | { type: 'flow-analysis-error'; data: { error: string } }
   | { type: 'baseline-saved'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } }
   | { type: 'baseline-loaded'; data: { nodeId: string; nodeName: string; timestamp: number; overall: number } | null }
-  | { type: 'diff-result'; data: DiffResultData };
+  | { type: 'diff-result'; data: DiffResultData }
+  | { type: 'page-sweep-progress'; data: { current: number; total: number; frameName: string } }
+  | { type: 'page-sweep-result'; data: PageSweepRawData }
+  | { type: 'selection-mini-score'; data: MiniScoreData }
+  | { type: 'design-debt-result'; data: DesignDebtScore }
+  | { type: 'variable-system-result'; data: VariableSystemReport }
+  | { type: 'variable-system-error'; data: { error: string } }
+  | { type: 'dtcg-compliance-result'; data: DTCGComplianceResult }
+  | { type: 'dtcg-compliance-error'; data: { error: string } }
+  | { type: 'mode-comparison-result'; data: ModeComparisonData }
+  | { type: 'mode-comparison-error'; data: { error: string } }
+  | { type: 'realtime-lint-update'; data: { errors: LintError[]; changedNodeIds: string[] } }
+  | { type: 'team-config-loaded'; data: { config: unknown; settings: unknown } }
+  | { type: 'team-config-saved'; data: { success: boolean; error?: string } }
+  | { type: 'dark-mode-card-result'; data: DarkModeResult }
+  | { type: 'extended-lint-result'; data: Record<string, unknown> }
+  | { type: 'extended-lint-error'; data: { error: string } };
 
 // Flow Analysis Types
 export interface FlowGraphIssue {
@@ -321,6 +355,178 @@ export interface BaselineMetaData {
   timestamp: number;
   nodeName: string;
   overall: number;
+}
+
+// ── Design Debt Score Types ──────────────────────────────────
+
+export interface DesignDebtScore {
+  overall: number;
+  components: {
+    orphanedStyles: { count: number; score: number };
+    detachedInstances: { count: number; score: number };
+    hardcodedValues: { count: number; score: number };
+    namingViolations: { count: number; score: number };
+    missingAutoLayout: { count: number; score: number };
+    inconsistentSpacing: { count: number; score: number };
+  };
+  trend?: {
+    previousScore: number;
+    delta: number;
+    direction: 'improving' | 'stable' | 'degrading';
+  };
+}
+
+// ── Variable System & DTCG Compliance Types ──────────────────
+
+export interface VariableCollectionData {
+  id: string;
+  name: string;
+  modes: Array<{ modeId: string; name: string }>;
+  variables: VariableData[];
+}
+
+export interface VariableData {
+  id: string;
+  name: string;
+  resolvedType: 'COLOR' | 'FLOAT' | 'STRING' | 'BOOLEAN';
+  description: string;
+  valuesByMode: Record<string, unknown>;
+  scopes: string[];
+  consumers: number;
+}
+
+export interface VariableSystemReport {
+  collections: VariableCollectionData[];
+  totalVariables: number;
+  unusedVariables: string[];
+  adoptionRate: number;
+  modesCoverage: Record<string, number>;
+}
+
+export interface DTCGComplianceResult {
+  adoptionScore: number;
+  matched: Array<{ token: string; nodeCount: number; usage: 'correct' | 'overridden' }>;
+  unmatched: Array<{ value: string; nodeCount: number; nearestToken: string; distance: number }>;
+  orphanTokens: string[];
+  missingFromSystem: string[];
+  summary: { totalTokenDefs: number; usedInDesign: number; hardCodedValues: number; compliance: number };
+}
+
+// ── Dark Mode Validation Types ──────────────────────────────
+
+export interface ModeComparisonData {
+  collection: string;
+  modes: Array<{
+    modeId: string;
+    modeName: string;
+    screenshot?: string;
+  }>;
+  variableDiffs: Array<{
+    variableName: string;
+    type: string;
+    values: Record<string, unknown>;
+  }>;
+  missingValues: Array<{
+    variableName: string;
+    missingModes: string[];
+  }>;
+}
+
+export interface DarkModeMetrics {
+  pureBlackBackgrounds: number;
+  pureWhiteText: number;
+  lowContrastOnDark: number;
+  missingModeValues: number;
+}
+
+export interface DarkModeResult {
+  issues: Array<{
+    id: string;
+    type: string;
+    severity: string;
+    nodeId: string;
+    nodeName: string;
+    message: string;
+    currentValue?: string;
+    suggestions?: string[];
+    autoFixable: boolean;
+  }>;
+  metrics: DarkModeMetrics;
+  summary: { totalChecked: number; passed: number; failed: number };
+}
+
+export interface DarkModeValidationResponse {
+  comparison: {
+    overallRating: 'pass' | 'needs_improvement' | 'fail';
+    visibilityIssues: Array<{ element: string; description: string }>;
+    semanticColorIssues: Array<{ element: string; lightValue: string; darkValue: string; issue: string }>;
+    elevationIssues: string[];
+    imageAdaptation: 'good' | 'needs_attention' | 'missing';
+    recommendations: Array<{ title: string; description: string; severity: string }>;
+    summary: string;
+  };
+  deterministicIssues: DarkModeResult | null;
+}
+
+// ── Page Sweep Progress ──────────────────────────────────────
+
+export interface PageSweepProgress {
+  phase: 'collecting' | 'comparing' | 'validating' | 'complete';
+  current: number;
+  total: number;
+  message: string;
+}
+
+// ── Page Sweep Types ──────────────────────────────────
+
+/** Raw data sent from plugin sandbox (before backend processing). */
+export interface PageSweepRawData {
+  frames: Array<{
+    id: string;
+    name: string;
+    screenshot: string;
+    lintResult: {
+      summary: {
+        totalErrors: number;
+        byType: Record<string, number>;
+        totalNodes: number;
+        nodesWithErrors: number;
+      };
+      errors: Array<{ errorType: string; severity?: string; nodeId: string; nodeName: string; message: string; value: string }>;
+    };
+    width: number;
+    height: number;
+  }>;
+  aggregated: {
+    totalFrames: number;
+    totalIssues: number;
+    topIssues: Array<{ type: string; count: number; severity: string }>;
+  };
+}
+
+/** Processed page sweep result (after backend AI analysis or deterministic fallback). */
+export interface PageSweepData {
+  fileHealth: {
+    overallScore: number;
+    grade: string;
+    totalFrames: number;
+    totalIssues: number;
+    topIssues: Array<{ type: string; count: number; severity: string }>;
+    consistencyScore: number;
+  };
+  frames: Array<{
+    id: string;
+    name: string;
+    score: number;
+    issueCount: number;
+    topIssues: string[];
+  }>;
+  aiInsights: {
+    strengths: string[];
+    weaknesses: string[];
+    recommendations: Array<{ title: string; description: string; affectedFrames: string[] }>;
+    summary: string;
+  };
 }
 
 // UI → Plugin message commands

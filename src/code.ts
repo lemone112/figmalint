@@ -1,6 +1,6 @@
 /// <reference types="@figma/plugin-typings" />
 
-import { handleUIMessage, initializePlugin } from './ui/message-handler';
+import { handleUIMessage, initializePlugin, quickLintSelectedNode } from './ui/message-handler';
 
 // Plugin configuration
 const PLUGIN_WINDOW_SIZE = { width: 380, height: 600, themeColors: true };
@@ -27,6 +27,11 @@ figma.on('selectionchange', () => {
       nodeName: sel.length > 0 ? sel[0].name : null,
     },
   });
+
+  // Ambient quality badge — quick lint on selection change
+  if (sel.length > 0) {
+    quickLintSelectedNode();
+  }
 });
 
 // Initialize plugin

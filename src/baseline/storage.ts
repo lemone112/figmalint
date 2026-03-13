@@ -36,6 +36,8 @@ export interface BaselineSnapshot {
     byType: Record<string, number>;
   };
   errors: ErrorDigest[];
+  /** Design debt score at time of baseline capture (optional for backward compat). */
+  designDebt?: number;
 }
 
 // ── Chunked pluginData helpers ──────────────────────────────

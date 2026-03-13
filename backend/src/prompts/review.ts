@@ -1,3 +1,5 @@
+import { GROUNDING_INSTRUCTIONS } from './shared/grounding-instructions.js';
+
 export function buildReviewPrompt(
   lintSummary: string,
   componentInfo: string,
@@ -96,5 +98,6 @@ Respond in this exact JSON format:
     { "title": "<short title>", "description": "<specific action>", "severity": "critical|warning|info" }
   ],
   "summary": "<2-3 sentence summary>"
-}`;
+}
+${GROUNDING_INSTRUCTIONS}`;
 }

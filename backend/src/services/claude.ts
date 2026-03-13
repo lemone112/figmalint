@@ -18,15 +18,22 @@ export const MODEL = 'claude-sonnet-4-20250514';
 // Internal alias for backward compat within this file
 const getClient = getAnthropicClient;
 
+export interface PageTypeResult {
+  type: string;
+  confidence: number;
+  signals: string[];
+}
+
 /**
  * Detect the page type from a screenshot.
+ * Returns structured result with type, confidence, and matched signals.
  */
-export async function detectPageType(screenshotBase64: string): Promise<string> {
+export async function detectPageType(screenshotBase64: string): Promise<PageTypeResult> {
   const anthropic = getClient();
 
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 50,
+    max_tokens: 300,
     messages: [
       {
         role: 'user',
@@ -42,9 +49,37 @@ export async function detectPageType(screenshotBase64: string): Promise<string> 
   });
 
   if (!response.content.length || response.content[0].type !== 'text') {
-    return 'other';
+    return { type: 'other', confidence: 0, signals: [] };
   }
-  return response.content[0].text.trim().toLowerCase();
+
+  const text = response.content[0].text.trim();
+
+  if (!text) {
+    return { type: 'other', confidence: 0, signals: [] };
+  }
+
+  // Try to parse as JSON first (new structured format)
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        type: typeof parsed.type === 'string' ? parsed.type.toLowerCase() : 'other',
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+        signals: Array.isArray(parsed.signals) ? parsed.signals : [],
+      };
+    }
+  } catch {
+    // JSON parse failed — return safe fallback instead of falling through to legacy parsing
+    return { type: 'other', confidence: 0, signals: [] };
+  }
+
+  // Legacy fallback: single word response — validate it looks like a reasonable type identifier
+  const candidate = text.toLowerCase().split(/\s/)[0];
+  if (!/^[a-z0-9_-]+$/i.test(candidate)) {
+    return { type: 'other', confidence: 0, signals: [] };
+  }
+  return { type: candidate, confidence: 0.5, signals: [] };
 }
 
 interface AiReviewCategory {
