@@ -7505,9 +7505,15 @@ ${scoringCriteria}
         (_b = incoming.get(edge.destinationFrameId)) == null ? void 0 : _b.add(edge.sourceFrameId);
       }
     }
+    const hasBackEdge = /* @__PURE__ */ new Set();
+    for (const edge of validEdges) {
+      if (edge.destinationFrameId === "__BACK__") {
+        hasBackEdge.add(edge.sourceFrameId);
+      }
+    }
     const deadEnds = frames.filter((f) => {
       var _a2;
-      return (((_a2 = outgoing.get(f.id)) == null ? void 0 : _a2.size) || 0) === 0;
+      return (((_a2 = outgoing.get(f.id)) == null ? void 0 : _a2.size) || 0) === 0 && !hasBackEdge.has(f.id);
     }).map((f) => f.id);
     const orphans = frames.filter((f) => {
       var _a2;
@@ -8661,8 +8667,16 @@ ${hasComponentContext ? "Since you have context about their current component, p
 Respond naturally and helpfully to the user's question.`;
   }
   var currentLintSettings = __spreadValues({}, DEFAULT_LINT_SETTINGS);
+  var lintScopeNodeIds = null;
   function handleRunDesignLint(data) {
     const settings = (data == null ? void 0 : data.settings) || currentLintSettings;
+    if (!lintScopeNodeIds || (data == null ? void 0 : data.resetScope)) {
+      lintScopeNodeIds = figma.currentPage.selection.map((n) => n.id);
+    }
+    const nodes = lintScopeNodeIds.map((id) => figma.getNodeById(id)).filter((n) => n !== null && n.type !== "DOCUMENT" && n.type !== "PAGE");
+    if (nodes.length > 0) {
+      figma.currentPage.selection = nodes;
+    }
     const result = lintSelection(settings);
     sendMessageToUI("design-lint-result", result);
   }
@@ -8756,6 +8770,7 @@ Respond naturally and helpfully to the user's question.`;
       const raw = figma.root.getSharedPluginData("figmalint", "config");
       if (raw) {
         const config = JSON.parse(raw);
+        currentLintSettings = __spreadValues({}, DEFAULT_LINT_SETTINGS);
         if ((_a = config.scales) == null ? void 0 : _a.spacing) {
           currentLintSettings.spacingScale = config.scales.spacing;
         }
@@ -8853,6 +8868,7 @@ Respond naturally and helpfully to the user's question.`;
       sendMessageToUI("screenshot-result", {
         nodeId: node.id,
         nodeName: node.name,
+        nodeType: node.type,
         screenshot: base64,
         width: node.width,
         height: node.height,

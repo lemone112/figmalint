@@ -39,7 +39,7 @@ export default function App() {
           componentName: componentName || screenshot.nodeName || 'Component',
           metadata: {
             nodeId: screenshot.nodeId,
-            nodeType: 'FRAME',
+            nodeType: (screenshot as any).nodeType ?? 'FRAME',
             width: screenshot.width,
             height: screenshot.height,
             hasAutoLayout: (screenshot as any).hasAutoLayout ?? false,
@@ -232,7 +232,7 @@ export default function App() {
         );
       } else {
         // Fallback to plugin main thread chat
-        post('chat-message', { message: text });
+        post('chat-message', { message: text, history: chat.messages });
       }
     },
     [chat, post, backendAvailable]

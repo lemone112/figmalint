@@ -980,8 +980,22 @@ Respond naturally and helpfully to the user's question.`;
 
 let currentLintSettings: LintSettings = { ...DEFAULT_LINT_SETTINGS };
 
+/** Snapshot of node IDs from the original lint scope, used for consistent re-scans. */
+let lintScopeNodeIds: string[] | null = null;
+
 function handleRunDesignLint(data?: any): void {
   const settings = data?.settings || currentLintSettings;
+  // On first run or explicit re-scan, capture scope from current selection
+  if (!lintScopeNodeIds || data?.resetScope) {
+    lintScopeNodeIds = figma.currentPage.selection.map(n => n.id);
+  }
+  // Restore the original lint scope before running
+  const nodes = lintScopeNodeIds
+    .map(id => figma.getNodeById(id))
+    .filter((n): n is SceneNode => n !== null && n.type !== 'DOCUMENT' && n.type !== 'PAGE');
+  if (nodes.length > 0) {
+    figma.currentPage.selection = nodes;
+  }
   const result = lintSelection(settings);
   sendMessageToUI('design-lint-result', result);
 }
@@ -1095,7 +1109,8 @@ function handleLoadTeamConfig(): void {
     const raw = figma.root.getSharedPluginData('figmalint', 'config');
     if (raw) {
       const config = JSON.parse(raw);
-      // Merge team config into current lint settings
+      // Reset to defaults before applying team config to prevent stale fields
+      currentLintSettings = { ...DEFAULT_LINT_SETTINGS };
       if (config.scales?.spacing) {
         currentLintSettings.spacingScale = config.scales.spacing;
       }
@@ -1203,6 +1218,7 @@ async function handleExportScreenshot(data: { nodeId?: string }): Promise<void> 
     sendMessageToUI('screenshot-result', {
       nodeId: node.id,
       nodeName: node.name,
+      nodeType: node.type,
       screenshot: base64,
       width: node.width,
       height: node.height,

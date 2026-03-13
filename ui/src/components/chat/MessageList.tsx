@@ -74,6 +74,19 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             return <IssuesList key={msg.id} errors={m.data} onJumpToNode={onJumpToNode} />;
           case 'fix-result':
             return <FixResult key={msg.id} data={m.data} />;
+          case 'issue-detail':
+            return (
+              <div key={msg.id} className="bg-bg-secondary rounded-xl px-3 py-2 text-12 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-fg">{m.data.nodeName}</span>
+                  <span className="text-10 text-fg-tertiary">{m.data.errorType}</span>
+                </div>
+                <p className="text-11 text-fg-secondary">{m.data.message}</p>
+                {m.data.value && (
+                  <p className="text-10 text-fg-tertiary font-mono">{m.data.value}</p>
+                )}
+              </div>
+            );
           case 'action-buttons':
             return <ActionButtons key={msg.id} buttons={m.buttons} onAction={onAction} />;
           case 'batch-summary':
