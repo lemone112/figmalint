@@ -15,6 +15,14 @@ app.post('/analyze-page', async (c) => {
     if (!body.frames || !Array.isArray(body.frames) || body.frames.length === 0) {
       return c.json({ error: 'Missing frames array' }, 400);
     }
+    if (body.frames.length > 50) {
+      return c.json({ error: 'Too many frames (max 50)' }, 400);
+    }
+    for (const frame of body.frames) {
+      if (!frame || typeof frame !== 'object' || !frame.id || !frame.name || typeof frame.screenshot !== 'string') {
+        return c.json({ error: 'Each frame must have id, name, and screenshot' }, 400);
+      }
+    }
 
     const result = await analyzePageSweep(body);
     return c.json({ success: true, ...result });

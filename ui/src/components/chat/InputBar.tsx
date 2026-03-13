@@ -1,4 +1,12 @@
-import { useState, useCallback, type KeyboardEvent } from 'react';
+import { useState, useCallback } from 'react';
+import {
+  PromptInput,
+  PromptInputTextarea,
+  PromptInputActions,
+  PromptInputAction,
+} from '@/components/ui/prompt-input';
+import { Button } from '@/components/ui/button';
+import { Send } from 'lucide-react';
 
 interface InputBarProps {
   onSend: (text: string) => void;
@@ -6,51 +14,51 @@ interface InputBarProps {
   disabled?: boolean;
 }
 
-export default function InputBar({ onSend, placeholder = 'Ask about this component...', disabled = false }: InputBarProps) {
-  const [text, setText] = useState('');
+export default function InputBar({
+  onSend,
+  placeholder = 'Ask about this component...',
+  disabled = false,
+}: InputBarProps) {
+  const [value, setValue] = useState('');
 
-  const handleSend = useCallback(() => {
-    const trimmed = text.trim();
+  const handleSubmit = useCallback(() => {
+    const trimmed = value.trim();
     if (!trimmed) return;
     onSend(trimmed);
-    setText('');
-  }, [text, onSend]);
+    setValue('');
+  }, [value, onSend]);
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend]
-  );
+  const isSubmitDisabled = disabled || !value.trim();
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-t border-border bg-bg">
-      <input
-        type="text"
-        className="flex-1 bg-bg-secondary border border-border rounded-md px-3 py-1.5 text-12 text-fg placeholder:text-fg-disabled outline-none focus:border-bg-brand transition-colors"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={handleKeyDown}
+    <PromptInput
+      value={value}
+      onValueChange={setValue}
+      isLoading={disabled}
+      onSubmit={handleSubmit}
+      className="rounded-none border-t border-border border-x-0 border-b-0 shadow-none p-1.5"
+    >
+      <PromptInputTextarea
         placeholder={placeholder}
-        disabled={disabled}
+        className="!min-h-[32px] text-12 placeholder:text-fg-disabled"
         aria-label="Chat message"
       />
-      <button
-        type="button"
-        className="flex items-center justify-center w-7 h-7 rounded-md bg-bg-brand text-fg-onbrand hover:opacity-90 disabled:opacity-40 transition-opacity"
-        onClick={handleSend}
-        disabled={disabled || !text.trim()}
-        title="Send"
-        aria-label="Send message"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <line x1="22" y1="2" x2="11" y2="13" />
-          <polygon points="22 2 15 22 11 13 2 9 22 2" />
-        </svg>
-      </button>
-    </div>
+
+      <PromptInputActions className="justify-end">
+        <PromptInputAction tooltip="Send">
+          <Button
+            type="button"
+            variant="default"
+            size="icon"
+            className="h-6 w-6 rounded-md"
+            disabled={isSubmitDisabled}
+            onClick={handleSubmit}
+            aria-label="Send message"
+          >
+            <Send className="!size-3" />
+          </Button>
+        </PromptInputAction>
+      </PromptInputActions>
+    </PromptInput>
   );
 }

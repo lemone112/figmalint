@@ -1,6 +1,6 @@
 {
-  "name": "FigmaLint",
-  "id": "ai-design-copilot",
+  "name": "Bezier",
+  "id": "1521241390290871981",
   "api": "1.0.0",
   "main": "code.js",
   "ui": "ui.html",
@@ -8,6 +8,12 @@
   "permissions": ["currentuser"],
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["https://api.anthropic.com"]
+    "allowedDomains": [
+      "https://api.anthropic.com",
+      "https://api.openai.com",
+      "https://generativelanguage.googleapis.com",
+      "https://design-systems-mcp.southleft.com",
+      "https://api.figmalint.labpics.com"
+    ]
   }
 }

@@ -1,5 +1,8 @@
-import { useEffect, useRef } from 'react';
 import type { ChatMessage, AnalysisPhase } from '../../lib/messages';
+import { Check, CheckCircle, Save, MessageSquare } from 'lucide-react';
+import { ChatContainerRoot, ChatContainerContent, ChatContainerScrollAnchor } from '@/components/ui/chat-container';
+import { Message, MessageContent } from '@/components/ui/message';
+import { Loader } from '@/components/ui/loader';
 import AiMessage from '../messages/AiMessage';
 import ScoreCard from '../messages/ScoreCard';
 import IssuesList from '../messages/IssuesList';
@@ -26,23 +29,15 @@ interface MessageListProps {
 }
 
 export default function MessageList({ messages, onAction, onJumpToNode }: MessageListProps) {
-  const endRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
-
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center px-6">
         <div className="text-center space-y-4 max-w-[280px]">
           <div className="text-[40px] mb-1">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto text-fg-tertiary" aria-hidden="true">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
+            <MessageSquare size={40} strokeWidth={1.5} className="mx-auto text-fg-tertiary" aria-hidden="true" />
           </div>
           <div>
-            <p className="text-13 font-medium text-fg mb-1">FigmaLint</p>
+            <p className="text-13 font-medium text-fg mb-1">Bezier</p>
             <p className="text-11 text-fg-secondary">AI-powered design quality review</p>
           </div>
           <div className="text-left space-y-2">
@@ -65,19 +60,20 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
   }
 
   return (
-    <div role="log" aria-live="polite" aria-label="Chat messages" className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+    <ChatContainerRoot className="flex-1 px-3 py-2" aria-label="Chat messages">
+      <ChatContainerContent className="space-y-2">
       {messages.map((msg) => {
         const m = msg.message;
         switch (m.kind) {
           case 'ai-text':
-            return <AiMessage key={msg.id} content={m.content} />;
+            return <AiMessage key={msg.id} content={m.content} streaming={m.streaming} />;
           case 'user-text':
             return (
-              <div key={msg.id} className="flex justify-end">
-                <div className="bg-bg-brand text-fg-onbrand rounded-xl rounded-br-sm px-3 py-2 text-12 max-w-[85%]">
+              <Message key={msg.id} className="flex justify-end">
+                <MessageContent className="bg-primary text-primary-foreground rounded-xl rounded-br-sm px-3 py-2 text-12 max-w-[85%]">
                   {m.content}
-                </div>
-              </div>
+                </MessageContent>
+              </Message>
             );
           case 'score-card':
             return <ScoreCard key={msg.id} data={m.data} />;
@@ -104,9 +100,7 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             return (
               <div key={msg.id} className="bg-bg-success rounded-xl px-3 py-2 text-12">
                 <div className="flex items-center gap-1.5">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-fg-success shrink-0" aria-hidden="true">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
+                  <CheckCircle size={14} strokeWidth={2} className="text-fg-success shrink-0" aria-hidden="true" />
                   <span>
                     <strong>{m.data.applied}</strong> of {m.data.total} fixes applied
                     {m.data.failed > 0 && <span className="text-fg-danger"> ({m.data.failed} failed)</span>}
@@ -146,11 +140,7 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             return (
               <div key={msg.id} className="bg-bg-success rounded-xl px-3 py-2 text-12">
                 <div className="flex items-center gap-1.5">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-fg-success shrink-0" aria-hidden="true">
-                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                    <polyline points="17 21 17 13 7 13 7 21" />
-                    <polyline points="7 3 7 8 15 8" />
-                  </svg>
+                  <Save size={14} strokeWidth={2} className="text-fg-success shrink-0" aria-hidden="true" />
                   <span>Baseline saved (score: {m.data.overall}/100)</span>
                 </div>
               </div>
@@ -176,8 +166,9 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             return null;
         }
       })}
-      <div ref={endRef} />
-    </div>
+      <ChatContainerScrollAnchor />
+      </ChatContainerContent>
+    </ChatContainerRoot>
   );
 }
 
@@ -194,28 +185,28 @@ function AnalysisPhaseIndicator({ phase, done }: { phase: AnalysisPhase; done?: 
   const currentIdx = PHASE_ORDER.indexOf(phase);
 
   return (
-    <div className="bg-bg-secondary rounded-xl px-3 py-2 space-y-1.5">
+    <div className="bg-bg-secondary rounded-xl px-3 py-2 space-y-1.5" role="status" aria-live="polite">
       {PHASE_ORDER.map((p, i) => {
         const isActive = i === currentIdx && !done;
         const isComplete = i < currentIdx || (done && i === currentIdx);
         const isPending = i > currentIdx;
+        const statusText = isComplete ? 'Complete' : isActive ? 'In progress' : 'Pending';
 
         return (
           <div key={p} className="flex items-center gap-2 text-11">
             {isComplete && (
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-fg-success shrink-0" aria-hidden="true">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <Check size={12} strokeWidth={3} className="text-fg-success shrink-0" aria-hidden="true" />
             )}
             {isActive && (
-              <div className="w-3 h-3 border-[1.5px] border-bg-brand border-t-transparent rounded-full animate-spin shrink-0" />
+              <Loader variant="typing" size="sm" className="shrink-0" />
             )}
             {isPending && (
               <div className="w-3 h-3 rounded-full bg-bg-tertiary shrink-0" />
             )}
-            <span className={isActive ? 'text-fg font-medium' : isComplete ? 'text-fg-secondary' : 'text-fg-tertiary'}>
+            <span className={isActive ? 'text-fg font-medium animate-pulse' : isComplete ? 'text-fg-secondary' : 'text-fg-tertiary'}>
               {PHASE_LABELS[p]}{isActive ? '...' : ''}
             </span>
+            <span className="sr-only">{statusText}</span>
           </div>
         );
       })}

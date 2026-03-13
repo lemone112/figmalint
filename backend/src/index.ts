@@ -4,7 +4,7 @@ import { logger } from 'hono/logger';
 import { bodyLimit } from 'hono/body-limit';
 import { serve } from '@hono/node-server';
 import { bearerAuth } from './middleware/auth.js';
-import { rateLimit } from './middleware/rate-limit.js';
+import { rateLimit, aiRateLimit } from './middleware/rate-limit.js';
 import health from './routes/health.js';
 import analyze from './routes/analyze.js';
 import chat from './routes/chat.js';
@@ -67,6 +67,17 @@ app.use('/api/*', rateLimit());
 // Bearer auth — when BACKEND_AUTH_TOKEN is set, require it on all /api/* except /api/health
 app.use('/api/*', bearerAuth());
 
+// Stricter rate limiting for AI-heavy routes
+app.use('/api/analyze', aiRateLimit());
+app.use('/api/analyze-flow', aiRateLimit());
+app.use('/api/analyze-page', aiRateLimit());
+app.use('/api/brand-consistency', aiRateLimit());
+app.use('/api/copy-tone', aiRateLimit());
+app.use('/api/persona-research', aiRateLimit());
+app.use('/api/generate-a11y-spec', aiRateLimit());
+app.use('/api/validate-dark-mode', aiRateLimit());
+app.use('/api/cognitive-walkthrough', aiRateLimit());
+
 // Routes
 app.route('/api', health);
 app.route('/api', analyze);
@@ -85,7 +96,7 @@ app.route('/api', darkMode);
 app.route('/api', pageSweep);
 
 // Root
-app.get('/', (c) => c.json({ name: 'FigmaLint Design Review API', version: '1.0.0' }));
+app.get('/', (c) => c.json({ name: 'Bezier Design Review API', version: '1.0.0' }));
 
 const port = parseInt(process.env.PORT || '3000', 10);
 
@@ -101,6 +112,6 @@ setInterval(() => {
   } catch { /* ignore */ }
 }, 6 * 60 * 60 * 1000).unref();
 
-console.log(`Starting FigmaLint backend on port ${port}...`);
+console.log(`Starting Bezier backend on port ${port}...`);
 serve({ fetch: app.fetch, port });
 console.log(`Server running at http://localhost:${port}`);

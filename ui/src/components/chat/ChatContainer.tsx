@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { Loader } from '@/components/ui/loader';
 import StickyHeader from './StickyHeader';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
@@ -11,6 +12,7 @@ interface ChatContainerProps {
   componentName?: string;
   analysisMode?: 'quick' | 'deep';
   miniScore?: MiniScoreData | null;
+  isActionLoading?: boolean;
   onAnalyze: () => void;
   onSendMessage: (text: string) => void;
   onAction: (action: string, params?: Record<string, unknown>) => void;
@@ -23,6 +25,7 @@ export default function ChatContainer({
   componentName,
   analysisMode,
   miniScore,
+  isActionLoading,
   onAnalyze,
   onSendMessage,
   onAction,
@@ -60,9 +63,9 @@ export default function ChatContainer({
 
       {/* Message stream */}
       {isAnalyzing ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="inline-block w-6 h-6 border-2 border-bg-brand border-t-transparent rounded-full animate-spin mb-2" />
+        <div className="flex-1 flex items-center justify-center" role="status" aria-live="polite">
+          <div className="text-center space-y-2">
+            <Loader variant="typing" size="md" />
             <p className="text-12 text-fg-secondary">Analyzing...</p>
           </div>
         </div>
@@ -78,6 +81,7 @@ export default function ChatContainer({
             hasFixable={(lintResult?.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length || 0) > 0}
             analysisMode={analysisMode}
             hasBaseline={!!baselineMeta}
+            isLoading={isActionLoading}
             onAction={handleAction}
           />
         )}

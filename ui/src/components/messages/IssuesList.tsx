@@ -40,6 +40,9 @@ const TYPE_LABELS: Record<string, string> = {
 
 export default function IssuesList({ errors, onJumpToNode }: IssuesListProps) {
   const [expanded, setExpanded] = useState(false);
+
+  if (!errors || errors.length === 0) return null;
+
   const displayErrors = expanded ? errors : errors.slice(0, 5);
   const hasMore = errors.length > 5;
 

@@ -3,20 +3,22 @@
  * Analyzes text content across multiple screens for voice/terminology consistency.
  */
 
+import { sanitizeText, sanitizeTextArray } from '../utils/sanitize.js';
+
 export function buildCopyTonePrompt(
   screens: Array<{ name: string; textContent: string[] }>,
   personality?: string[],
 ): string {
   const screensBlock = screens
     .map((s, i) => {
-      const texts = s.textContent.map((t) => `    "${t}"`).join('\n');
-      return `  Screen ${i + 1}: "${s.name}"\n${texts}`;
+      const texts = sanitizeTextArray(s.textContent).map((t) => `    "${t}"`).join('\n');
+      return `  Screen ${i + 1}: "${sanitizeText(s.name)}"\n${texts}`;
     })
     .join('\n\n');
 
   const personalityBlock =
     personality && personality.length > 0
-      ? `\n## Brand Voice / Personality Keywords\n${personality.join(', ')}\n\nEvaluate whether the copy aligns with these personality traits.\n`
+      ? `\n## Brand Voice / Personality Keywords\n${sanitizeTextArray(personality).join(', ')}\n\nEvaluate whether the copy aligns with these personality traits.\n`
       : '';
 
   return `You are a senior UX copywriter and content strategist. Analyze the text content below, extracted from multiple screens of the same product. Your goal is to find inconsistencies in terminology, tone, voice, and readability across the flow.

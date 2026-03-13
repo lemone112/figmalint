@@ -13,6 +13,19 @@ app.get('/session/:id', (c) => {
     return c.json({ error: 'Session not found' }, 404);
   }
 
+  let lintResult = null;
+  let aiReview = null;
+  let referoData = null;
+  let conversationLength = 0;
+
+  try { lintResult = session.lint_result ? JSON.parse(session.lint_result) : null; } catch { /* corrupted */ }
+  try { aiReview = session.ai_review ? JSON.parse(session.ai_review) : null; } catch { /* corrupted */ }
+  try { referoData = session.refero_data ? JSON.parse(session.refero_data) : null; } catch { /* corrupted */ }
+  try {
+    const parsed = JSON.parse(session.conversation || '[]');
+    conversationLength = Array.isArray(parsed) ? parsed.length : 0;
+  } catch { /* corrupted */ }
+
   return c.json({
     id: session.id,
     createdAt: session.created_at,
@@ -22,13 +35,13 @@ app.get('/session/:id', (c) => {
     pageType: session.page_type,
     scoreInitial: session.score_initial,
     scoreCurrent: session.score_current,
-    lintResult: session.lint_result ? JSON.parse(session.lint_result) : null,
-    aiReview: session.ai_review ? JSON.parse(session.ai_review) : null,
-    referoData: session.refero_data ? JSON.parse(session.refero_data) : null,
+    lintResult,
+    aiReview,
+    referoData,
     issuesFound: session.issues_found,
     issuesFixed: session.issues_fixed,
     issuesSkipped: session.issues_skipped,
-    conversationLength: JSON.parse(session.conversation || '[]').length,
+    conversationLength,
   });
 });
 
@@ -47,9 +60,12 @@ app.get('/session/:id/refero', (c) => {
     return c.json({ ready: false });
   }
 
+  let referoResult = null;
+  try { referoResult = JSON.parse(session.refero_data); } catch { /* corrupted */ }
+
   return c.json({
-    ready: true,
-    data: JSON.parse(session.refero_data),
+    ready: !!referoResult,
+    data: referoResult,
   });
 });
 

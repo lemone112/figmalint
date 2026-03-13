@@ -21,6 +21,11 @@ function renameOutput(): Plugin {
 
 export default defineConfig({
   plugins: [react(), viteSingleFile(), renameOutput()],
+  resolve: {
+    alias: {
+      "@": resolve(__dirname, "./src"),
+    },
+  },
   build: {
     outDir: '../dist',
     emptyOutDir: false,

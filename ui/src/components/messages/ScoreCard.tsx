@@ -41,6 +41,8 @@ const GRADE_STYLES: Record<ScoreGrade, { label: string; color: string; bg: strin
 };
 
 export default function ScoreCard({ data }: ScoreCardProps) {
+  if (!data || data.overall == null) return null;
+
   const grade = GRADE_STYLES[data.grade];
 
   return (

@@ -1,5 +1,5 @@
 /**
- * OpenAI Provider Implementation for FigmaLint Plugin
+ * OpenAI Provider Implementation for Bezier Plugin
  *
  * Implements the LLMProvider interface for OpenAI's GPT models.
  */

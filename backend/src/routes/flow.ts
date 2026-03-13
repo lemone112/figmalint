@@ -15,8 +15,26 @@ app.post('/analyze-flow', async (c) => {
     if (!body.frames || !Array.isArray(body.frames) || body.frames.length === 0) {
       return c.json({ error: 'Missing frames array' }, 400);
     }
-    if (!body.screenshots || Object.keys(body.screenshots).length === 0) {
+    if (body.frames.length > 50) {
+      return c.json({ error: 'Too many frames (max 50)' }, 400);
+    }
+    for (const frame of body.frames) {
+      if (!frame || typeof frame !== 'object' || typeof frame.id !== 'string' || typeof frame.name !== 'string' || !Number.isFinite(frame.width) || !Number.isFinite(frame.height)) {
+        return c.json({ error: 'Each frame must have id (string), name (string), width (number), and height (number)' }, 400);
+      }
+    }
+    if (!body.screenshots || typeof body.screenshots !== 'object' || Object.keys(body.screenshots).length === 0) {
       return c.json({ error: 'Missing screenshots' }, 400);
+    }
+    if (body.edges !== undefined && !Array.isArray(body.edges)) {
+      return c.json({ error: 'edges must be an array' }, 400);
+    }
+    if (body.edges && Array.isArray(body.edges)) {
+      for (const edge of body.edges) {
+        if (!edge || typeof edge !== 'object' || typeof edge.sourceFrameId !== 'string' || typeof edge.destinationFrameId !== 'string') {
+          return c.json({ error: 'Each edge must have sourceFrameId (string) and destinationFrameId (string)' }, 400);
+        }
+      }
     }
 
     const result = await analyzeFlow(body);

@@ -5,7 +5,9 @@ import TeamConfigPanel from './components/shared/TeamConfigPanel';
 import { useChat } from './hooks/useChat';
 import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
 import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData, PageSweepData, PageSweepRawData, MiniScoreData } from './lib/messages';
-import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow, analyzePageSweep } from './lib/api';
+import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow, analyzePageSweep, analyzeBrandConsistency, analyzeCopyTone, analyzePersonaResearch, generateA11ySpec } from './lib/api';
+
+const isDev = import.meta.env.DEV;
 
 export default function App() {
   const chat = useChat();
@@ -20,18 +22,20 @@ export default function App() {
   const [selectionStale, setSelectionStale] = useState(false);
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null);
   const [miniScore, setMiniScore] = useState<MiniScoreData | null>(null);
+  const [isActionLoading, setIsActionLoading] = useState(false);
   const analyzedNodeId = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const walkthroughIndex = useRef(0);
   const referoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingLintResult = useRef<LintResult | null>(null);
   const pendingScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number } | null>(null);
+  const lastScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number; textContent?: string[] } | null>(null);
   const pageSweepRequestId = useRef(0);
 
   // Try to send lint + screenshot to backend for AI analysis
   const tryBackendAnalysis = useCallback(async (
     lintResult: LintResult,
-    screenshot: { screenshot: string; nodeId: string; nodeName: string; width: number; height: number }
+    screenshot: { screenshot: string; nodeId: string; nodeName: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number; tokenSummary?: { totalTokens: number; boundToVariables: number; boundToStyles: number; hardCoded: number } }
   ) => {
     if (!backendAvailable) return;
 
@@ -45,13 +49,13 @@ export default function App() {
           componentName: componentName || screenshot.nodeName || 'Component',
           metadata: {
             nodeId: screenshot.nodeId,
-            nodeType: (screenshot as any).nodeType ?? 'FRAME',
+            nodeType: 'FRAME',
             width: screenshot.width,
             height: screenshot.height,
-            hasAutoLayout: (screenshot as any).hasAutoLayout ?? false,
-            childCount: (screenshot as any).childCount ?? 0,
+            hasAutoLayout: screenshot.hasAutoLayout ?? false,
+            childCount: screenshot.childCount ?? 0,
           },
-          tokenSummary: (screenshot as any).tokenSummary,
+          tokenSummary: screenshot.tokenSummary,
         },
         sessionId: chat.sessionId || undefined,
         mode: analysisMode,
@@ -159,8 +163,9 @@ export default function App() {
             // Rescan lint result will arrive via 'design-lint-result' — handled there
             break;
           case 'screenshot-result': {
-            const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number };
+            const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number; textContent?: string[] };
             pendingScreenshot.current = ssData;
+            lastScreenshot.current = ssData;
             analyzedNodeId.current = ssData.nodeId;
             // Check for existing baseline for this node
             post('load-baseline', { nodeId: ssData.nodeId });
@@ -423,6 +428,36 @@ export default function App() {
     post('check-api-key');
     checkHealth().then(ok => setBackendAvailable(ok));
   }, [post]);
+
+  // Dev-mode: populate chat with mock messages to showcase UI components
+  useEffect(() => {
+    if (!isDev) return;
+
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    import('./lib/dev-mock').then(({ DEV_MOCK_STEPS }) => {
+      if (cancelled) return;
+      for (const step of DEV_MOCK_STEPS) {
+        timers.push(
+          setTimeout(() => {
+            if (cancelled) return;
+            // Streaming message: start the typing indicator via appendStreamChunk
+            if (step.msg.kind === 'ai-text' && step.msg.streaming) {
+              chat.appendStreamChunk('');
+            } else {
+              chat.addMessage(step.msg);
+            }
+          }, step.delay)
+        );
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount in dev
 
   const handleAnalyze = useCallback(() => {
     // Abort any in-flight streaming chat
@@ -752,9 +787,171 @@ export default function App() {
           post('collect-variables');
           break;
         }
+
+        case 'brand-audit': {
+          if (!backendAvailable) {
+            chat.addMessage({ kind: 'ai-text', content: 'Backend unavailable. Brand audit requires the AI backend.' });
+            break;
+          }
+          if (!lastScreenshot.current) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
+            break;
+          }
+          if (selectionStale) {
+            chat.addMessage({ kind: 'ai-text', content: 'Selection has changed since last analysis. Re-scan first.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Running brand consistency analysis...' });
+          setIsActionLoading(true);
+          const brandSs = lastScreenshot.current;
+          const tc = teamConfig as Record<string, any> | undefined;
+          const brandGuide = {
+            colors: tc?.brandGuide?.colors ?? {},
+            typography: tc?.brandGuide?.typography ?? {
+              heading: { family: '', weights: [] },
+              body: { family: '', weights: [] },
+            },
+            spacing: tc?.brandGuide?.spacing ?? { base: 8, scale: [4, 8, 12, 16, 24, 32, 48, 64] },
+            personality: tc?.brandGuide?.personality ?? ['professional', 'clear', 'consistent'],
+          };
+          analyzeBrandConsistency({
+            screenshot: brandSs.screenshot,
+            brandGuide,
+            lintResult: chat.lintResult ?? undefined,
+            sessionId: chat.sessionId || undefined,
+          }).then((result) => {
+            chat.addMessage({ kind: 'brand-consistency', data: result.brandConsistency });
+          }).catch((err) => {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Brand audit failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            });
+          }).finally(() => setIsActionLoading(false));
+          break;
+        }
+
+        case 'copy-tone': {
+          if (!backendAvailable) {
+            chat.addMessage({ kind: 'ai-text', content: 'Backend unavailable. Copy/tone analysis requires the AI backend.' });
+            break;
+          }
+          if (!lastScreenshot.current) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
+            break;
+          }
+          if (selectionStale) {
+            chat.addMessage({ kind: 'ai-text', content: 'Selection has changed since last analysis. Re-scan first.' });
+            break;
+          }
+          const textContent = lastScreenshot.current.textContent ?? [];
+          if (textContent.length === 0) {
+            chat.addMessage({ kind: 'ai-text', content: 'No text content found in the selected frame. Copy/tone analysis requires text layers.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Running copy & tone analysis...' });
+          setIsActionLoading(true);
+          analyzeCopyTone({
+            screens: [{ name: componentName || lastScreenshot.current.nodeName || 'Current Screen', textContent }],
+            sessionId: chat.sessionId || undefined,
+          }).then((result) => {
+            chat.addMessage({ kind: 'copy-tone', data: result.copyTone });
+          }).catch((err) => {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Copy/tone analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            });
+          }).finally(() => setIsActionLoading(false));
+          break;
+        }
+
+        case 'persona-sim': {
+          if (!backendAvailable) {
+            chat.addMessage({ kind: 'ai-text', content: 'Backend unavailable. Persona simulation requires the AI backend.' });
+            break;
+          }
+          if (!lastScreenshot.current) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
+            break;
+          }
+          if (selectionStale) {
+            chat.addMessage({ kind: 'ai-text', content: 'Selection has changed since last analysis. Re-scan first.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Running persona-based usability simulation...' });
+          setIsActionLoading(true);
+          analyzePersonaResearch({
+            screenshot: lastScreenshot.current.screenshot,
+            taskDescription: componentName ? `Complete a task using the "${componentName}" component` : 'General usability review',
+            sessionId: chat.sessionId || undefined,
+          }).then((result) => {
+            chat.addMessage({ kind: 'persona-research', data: result.personaResearch });
+          }).catch((err) => {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Persona simulation failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            });
+          }).finally(() => setIsActionLoading(false));
+          break;
+        }
+
+        case 'a11y-spec': {
+          if (!backendAvailable) {
+            chat.addMessage({ kind: 'ai-text', content: 'Backend unavailable. A11y spec generation requires the AI backend.' });
+            break;
+          }
+          if (!lastScreenshot.current) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
+            break;
+          }
+          if (selectionStale) {
+            chat.addMessage({ kind: 'ai-text', content: 'Selection has changed since last analysis. Re-scan first.' });
+            break;
+          }
+          if (!chat.lintResult) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to generate lint results.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Generating accessibility specification...' });
+          setIsActionLoading(true);
+          const a11ySs = lastScreenshot.current;
+          const a11yLint = chat.lintResult;
+          generateA11ySpec({
+            screenshot: a11ySs.screenshot,
+            extractedData: {
+              componentName: componentName || a11ySs.nodeName || 'Component',
+              metadata: {
+                nodeId: a11ySs.nodeId,
+                nodeType: 'FRAME',
+                width: a11ySs.width,
+                height: a11ySs.height,
+                hasAutoLayout: a11ySs.hasAutoLayout ?? false,
+                childCount: a11ySs.childCount ?? 0,
+              },
+            },
+            lintResult: {
+              summary: a11yLint.summary,
+              errors: a11yLint.errors.map((e) => ({
+                nodeId: e.nodeId,
+                nodeName: e.nodeName,
+                errorType: e.errorType,
+                message: e.message,
+                value: (e as any).value ?? '',
+              })),
+            },
+            sessionId: chat.sessionId || undefined,
+          }).then((result) => {
+            chat.addMessage({ kind: 'a11y-spec', data: result.spec });
+          }).catch((err) => {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `A11y spec generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            });
+          }).finally(() => setIsActionLoading(false));
+          break;
+        }
       }
     },
-    [chat, post, componentName, analysisMode]
+    [chat, post, componentName, analysisMode, backendAvailable, selectionStale, teamConfig]
   );
 
   const handleJumpToNode = useCallback(
@@ -857,6 +1054,7 @@ export default function App() {
         componentName={componentName}
         analysisMode={analysisMode}
         miniScore={miniScore}
+        isActionLoading={isActionLoading}
         onAnalyze={handleAnalyze}
         onSendMessage={handleSendMessage}
         onAction={handleAction}

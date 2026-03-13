@@ -3,6 +3,8 @@
  * Evaluates a design screenshot against a structured brand guide.
  */
 
+import { sanitizeText, sanitizeTextArray } from '../utils/sanitize.js';
+
 export interface BrandGuide {
   colors: Record<string, { hex: string; tolerance: number; usage: string }>;
   typography: {
@@ -22,26 +24,26 @@ export function buildBrandConsistencyPrompt(
   const colorLines = Object.entries(brandGuide.colors)
     .map(
       ([name, c]) =>
-        `  - ${name}: ${c.hex} (tolerance: +/-${c.tolerance}%, usage: ${c.usage})`,
+        `  - ${sanitizeText(name)}: ${sanitizeText(c.hex)} (tolerance: +/-${c.tolerance}%, usage: ${sanitizeText(c.usage)})`,
     )
     .join('\n');
 
   // Serialize typography
   const typoLines = [
-    `  Headings: ${brandGuide.typography.heading.family} [weights: ${brandGuide.typography.heading.weights.join(', ')}]`,
-    `  Body: ${brandGuide.typography.body.family} [weights: ${brandGuide.typography.body.weights.join(', ')}]`,
+    `  Headings: ${sanitizeText(brandGuide.typography.heading.family)} [weights: ${brandGuide.typography.heading.weights.join(', ')}]`,
+    `  Body: ${sanitizeText(brandGuide.typography.body.family)} [weights: ${brandGuide.typography.body.weights.join(', ')}]`,
   ].join('\n');
 
   // Serialize spacing
   const spacingLine = `  Base unit: ${brandGuide.spacing.base}px, scale: [${brandGuide.spacing.scale.join(', ')}]`;
 
   // Serialize personality
-  const personalityLine = brandGuide.personality.join(', ');
+  const personalityLine = sanitizeTextArray(brandGuide.personality).join(', ');
 
   // Serialize custom rules
   const rulesBlock =
     brandGuide.rules && brandGuide.rules.length > 0
-      ? `\n## Custom Brand Rules\n${brandGuide.rules.map((r) => `  - [${r.severity.toUpperCase()}] ${r.id}: ${r.description}`).join('\n')}\n`
+      ? `\n## Custom Brand Rules\n${brandGuide.rules.map((r) => `  - [${sanitizeText(r.severity.toUpperCase())}] ${sanitizeText(r.id)}: ${sanitizeText(r.description)}`).join('\n')}\n`
       : '';
 
   return `You are a brand design auditor. Evaluate the screenshot against the brand guidelines provided below. Be precise and cite specific visual evidence from the screenshot.

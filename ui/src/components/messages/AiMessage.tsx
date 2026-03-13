@@ -1,48 +1,26 @@
-import type { ReactNode } from 'react';
+import { MessageContent } from '@/components/ui/message';
+import { Loader } from '@/components/ui/loader';
 
 interface AiMessageProps {
   content: string;
+  streaming?: boolean;
 }
 
-/**
- * Parse **bold** markers into React elements safely (no innerHTML).
- */
-function parseBold(text: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  const regex = /\*\*(.+?)\*\*/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    parts.push(<strong key={match.index}>{match[1]}</strong>);
-    lastIndex = regex.lastIndex;
+export default function AiMessage({ content, streaming }: AiMessageProps) {
+  if (streaming && !content) {
+    return (
+      <div className="bg-bg-secondary rounded-xl rounded-bl-sm px-3 py-2 max-w-[90%]">
+        <Loader variant="typing" size="sm" />
+      </div>
+    );
   }
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return parts.length > 0 ? parts : [text];
-}
-
-/**
- * Render AI message text with basic markdown-like formatting.
- * Supports **bold** and line breaks — no dangerouslySetInnerHTML.
- */
-export default function AiMessage({ content }: AiMessageProps) {
-  const lines = content.split('\n');
 
   return (
-    <div className="bg-bg-secondary rounded-xl rounded-bl-sm px-3 py-2 text-12 text-fg max-w-[90%]">
-      {lines.map((line, i) => (
-        <span key={i}>
-          {i > 0 && <br />}
-          {parseBold(line)}
-        </span>
-      ))}
-    </div>
+    <MessageContent
+      markdown
+      className="bg-bg-secondary rounded-xl rounded-bl-sm px-3 py-2 text-12 text-fg max-w-[90%] prose-sm prose-p:my-0.5 prose-headings:mt-2 prose-headings:mb-1 prose-li:my-0 prose-ul:my-0.5 prose-ol:my-0.5"
+    >
+      {content}
+    </MessageContent>
   );
 }

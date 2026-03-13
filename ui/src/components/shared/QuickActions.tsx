@@ -5,16 +5,29 @@ interface QuickActionsProps {
   hasFixable: boolean;
   analysisMode?: 'quick' | 'deep';
   hasBaseline?: boolean;
+  isLoading?: boolean;
   onAction: (action: string, params?: Record<string, unknown>) => void;
 }
 
-export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'quick', hasBaseline, onAction }: QuickActionsProps) {
+export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'quick', hasBaseline, isLoading, onAction }: QuickActionsProps) {
   const [showMore, setShowMore] = useState(false);
 
   return (
     <div className="border-t border-border">
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="flex items-center gap-2 px-3 py-1 text-11 text-fg-secondary" role="status" aria-live="polite">
+          <div className="w-3 h-3 border-[1.5px] border-bg-brand border-t-transparent rounded-full animate-spin shrink-0" aria-hidden="true" />
+          <span>Running...</span>
+        </div>
+      )}
       {/* Primary row */}
-      <div className="flex items-center gap-1.5 px-3 py-1 overflow-x-auto">
+      <fieldset
+        disabled={isLoading}
+        aria-busy={isLoading}
+        aria-label="Quick actions"
+        className={`min-w-0 m-0 border-0 p-0 flex items-center gap-1.5 px-3 py-1 overflow-x-auto ${isLoading ? 'opacity-50' : ''}`}
+      >
         {hasFixable && (
           <button
             className="shrink-0 px-2 py-1 text-11 bg-bg-brand text-fg-onbrand rounded-md hover:opacity-90 transition-opacity"
@@ -81,11 +94,16 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
         >
           {showMore ? 'Less' : 'More...'}
         </button>
-      </div>
+      </fieldset>
 
       {/* Secondary row — advanced actions */}
       {showMore && (
-        <div className="flex items-center gap-1.5 px-3 py-1 overflow-x-auto border-t border-border/50">
+        <fieldset
+          disabled={isLoading}
+          aria-busy={isLoading}
+          aria-label="Advanced actions"
+          className={`min-w-0 m-0 border-0 p-0 flex items-center gap-1.5 px-3 py-1 overflow-x-auto border-t border-border/50 ${isLoading ? 'opacity-50' : ''}`}
+        >
           <button
             className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
             onClick={() => onAction('design-debt')}
@@ -107,7 +125,35 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
           >
             Token Audit
           </button>
-        </div>
+          <button
+            className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
+            onClick={() => onAction('brand-audit')}
+            title="Analyze brand guide compliance (colors, typography, spacing)"
+          >
+            Brand Audit
+          </button>
+          <button
+            className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
+            onClick={() => onAction('copy-tone')}
+            title="Analyze copy and tone consistency across screens"
+          >
+            Copy/Tone
+          </button>
+          <button
+            className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
+            onClick={() => onAction('persona-sim')}
+            title="Run persona-based UX research simulation"
+          >
+            Persona Sim
+          </button>
+          <button
+            className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
+            onClick={() => onAction('a11y-spec')}
+            title="Generate accessibility specification (ARIA, focus order, landmarks)"
+          >
+            A11y Spec
+          </button>
+        </fieldset>
       )}
     </div>
   );
