@@ -103,14 +103,6 @@ function setDifference<T>(a: Set<T>, b: Set<T>): Set<T> {
   return diff;
 }
 
-function setIntersection<T>(a: Set<T>, b: Set<T>): Set<T> {
-  const inter = new Set<T>();
-  for (const item of a) {
-    if (b.has(item)) inter.add(item);
-  }
-  return inter;
-}
-
 /**
  * Run cross-screen consistency checks on multiple frames.
  * Returns FlowGraphIssues for any detected drift.

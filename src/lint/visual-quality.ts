@@ -1,6 +1,6 @@
 /// <reference types="@figma/plugin-typings" />
 
-import { LintIssue, LintSeverity } from './types';
+import { LintIssue } from './types';
 import { rgbToHex } from '../utils/figma-helpers';
 
 // ──────────────────────────────────────────────
