@@ -224,7 +224,7 @@ export type PluginEvent =
   | { type: 'rescan-complete'; data: { totalErrors: number; nodesWithErrors: number } }
   | { type: 'api-key-status'; data: { hasKey: boolean; provider: string; model?: string } }
   | { type: 'api-key-saved'; data: { success: boolean } }
-  | { type: 'screenshot-result'; data: { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number } }
+  | { type: 'screenshot-result'; data: { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number; textContent?: string[] } }
   | { type: 'selection-changed'; data: { hasSelection: boolean; nodeId: string | null; nodeName: string | null } }
   | { type: 'screenshot-error'; data: { error: string } }
   | { type: 'flow-analysis-started'; data: { status: string; progress?: number; total?: number } }

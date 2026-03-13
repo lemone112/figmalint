@@ -102,15 +102,9 @@ app.post('/brand-consistency', async (c) => {
       );
     }
 
-    // Validate brandGuide.personality
+    // Validate brandGuide.personality — default to generic traits if omitted/empty
     if (!Array.isArray(bg.personality) || bg.personality.length === 0) {
-      return c.json(
-        {
-          error:
-            'brandGuide.personality is required and must be a non-empty array of strings',
-        },
-        400,
-      );
+      bg.personality = ['professional', 'clear', 'consistent'];
     }
 
     if (!process.env.ANTHROPIC_API_KEY) {

@@ -27,7 +27,7 @@ export default function App() {
   const referoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingLintResult = useRef<LintResult | null>(null);
   const pendingScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number } | null>(null);
-  const lastScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number } | null>(null);
+  const lastScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number; textContent?: string[] } | null>(null);
   const pageSweepRequestId = useRef(0);
 
   // Try to send lint + screenshot to backend for AI analysis
@@ -161,7 +161,7 @@ export default function App() {
             // Rescan lint result will arrive via 'design-lint-result' — handled there
             break;
           case 'screenshot-result': {
-            const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number };
+            const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number; textContent?: string[] };
             pendingScreenshot.current = ssData;
             lastScreenshot.current = ssData;
             analyzedNodeId.current = ssData.nodeId;
@@ -801,10 +801,15 @@ export default function App() {
             chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
             break;
           }
+          const textContent = lastScreenshot.current.textContent ?? [];
+          if (textContent.length === 0) {
+            chat.addMessage({ kind: 'ai-text', content: 'No text content found in the selected frame. Copy/tone analysis requires text layers.' });
+            break;
+          }
           chat.addMessage({ kind: 'ai-text', content: 'Running copy & tone analysis...' });
           setIsActionLoading(true);
           analyzeCopyTone({
-            screens: [{ name: componentName || lastScreenshot.current.nodeName || 'Current Screen', textContent: [] }],
+            screens: [{ name: componentName || lastScreenshot.current.nodeName || 'Current Screen', textContent }],
             sessionId: chat.sessionId || undefined,
           }).then((result) => {
             chat.addMessage({ kind: 'copy-tone', data: result.copyTone });

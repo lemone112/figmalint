@@ -1,7 +1,7 @@
 /// <reference types="@figma/plugin-typings" />
 
 import { PluginMessage, UIMessageType, EnhancedAnalysisOptions, ChatMessage, ChatResponse } from '../types';
-import { sendMessageToUI, isValidNodeForAnalysis } from '../utils/figma-helpers';
+import { sendMessageToUI, isValidNodeForAnalysis, extractTextContent } from '../utils/figma-helpers';
 import { processEnhancedAnalysis, processAnalysisResult, extractComponentContext } from '../core/component-analyzer';
 import { extractDesignTokensFromNode } from '../core/token-analyzer';
 import { extractJSONFromResponse, filterDevelopmentRecommendations } from '../api/claude';
@@ -1276,6 +1276,12 @@ async function handleExportScreenshot(data: { nodeId?: string }): Promise<void> 
       // Token extraction is best-effort — don't block screenshot
     }
 
+    // Extract text content for copy/tone analysis
+    let textContent: string[] = [];
+    try {
+      textContent = extractTextContent(node);
+    } catch { /* best-effort */ }
+
     sendMessageToUI('screenshot-result', {
       nodeId: node.id,
       nodeName: node.name,
@@ -1286,6 +1292,7 @@ async function handleExportScreenshot(data: { nodeId?: string }): Promise<void> 
       hasAutoLayout,
       childCount,
       tokenSummary,
+      textContent,
     });
   } catch (error) {
     console.warn('Could not export screenshot:', error);
