@@ -1,13 +1,22 @@
 import { Hono } from 'hono';
 import { runAnalysis, type AnalyzeRequest } from '../services/analyzer.js';
+import {
+  runExtendedAnalysis,
+  type ExtendedAnalysisResult,
+  type ExtendedFeatures,
+} from '../services/extended-analyzer.js';
+
+interface AnalyzeRequestBody extends AnalyzeRequest {
+  features?: ExtendedFeatures;
+}
 
 const app = new Hono();
 
 app.post('/analyze', async (c) => {
   try {
-    let body: AnalyzeRequest;
+    let body: AnalyzeRequestBody;
     try {
-      body = await c.req.json<AnalyzeRequest>();
+      body = await c.req.json<AnalyzeRequestBody>();
     } catch {
       return c.json({ error: 'Invalid JSON body' }, 400);
     }
@@ -28,8 +37,33 @@ app.post('/analyze', async (c) => {
       return c.json({ error: 'extractedData.componentName is required' }, 400);
     }
 
-    const result = await runAnalysis(body);
-    return c.json(result);
+    // Determine which extended features are requested
+    const features: ExtendedFeatures = {
+      attention: body.features?.attention === true,
+      nielsen: body.features?.nielsen === true,
+    };
+    const hasExtended = features.attention || features.nielsen;
+
+    // Run core analysis and extended analysis in parallel
+    const [coreResult, extendedResult] = await Promise.all([
+      runAnalysis(body),
+      hasExtended
+        ? runExtendedAnalysis(
+            body.screenshot,
+            body.lintResult,
+            body.extractedData,
+            body.sessionId ?? '',
+            features,
+          )
+        : Promise.resolve(undefined as ExtendedAnalysisResult | undefined),
+    ]);
+
+    // Merge extended results into the response
+    return c.json({
+      ...coreResult,
+      ...(extendedResult?.attention && { attention: extendedResult.attention }),
+      ...(extendedResult?.nielsen && { nielsen: extendedResult.nielsen }),
+    });
   } catch (error) {
     console.error('Analysis error:', error);
     return c.json({ error: 'Analysis failed. Please try again.' }, 500);

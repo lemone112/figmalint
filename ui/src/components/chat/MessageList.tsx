@@ -8,6 +8,7 @@ import AiReviewCard from '../messages/AiReviewCard';
 import ReferoGallery from '../messages/ReferoGallery';
 import FlowResultCard from '../messages/FlowResultCard';
 import DiffCard from '../messages/DiffCard';
+import PageSweepCard from '../messages/PageSweepCard';
 import ActionButtons from '../shared/ActionButtons';
 
 interface MessageListProps {
@@ -115,6 +116,8 @@ export default function MessageList({ messages, onAction, onJumpToNode }: Messag
             return <FlowResultCard key={msg.id} data={m.data} onJumpToNode={onJumpToNode} />;
           case 'diff-result':
             return <DiffCard key={msg.id} data={m.data} />;
+          case 'page-sweep-result':
+            return <PageSweepCard key={msg.id} data={m.data} />;
           case 'baseline-saved':
             return (
               <div key={msg.id} className="bg-bg-success rounded-xl px-3 py-2 text-12">

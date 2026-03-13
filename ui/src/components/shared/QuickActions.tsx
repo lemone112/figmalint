@@ -60,6 +60,13 @@ export default function QuickActions({ onAnalyze, hasFixable, analysisMode = 'qu
       >
         {analysisMode === 'quick' ? 'Quick' : 'Deep'}
       </button>
+      <button
+        className="shrink-0 px-2 py-1 text-11 text-fg-secondary hover:bg-bg-hover rounded-md transition-colors"
+        onClick={() => onAction('analyze-page')}
+        title="Sweep all top-level frames on the page"
+      >
+        Sweep Page
+      </button>
     </div>
   );
 }

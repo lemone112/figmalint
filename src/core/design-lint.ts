@@ -9,6 +9,10 @@ import { checkVisualQuality } from '../lint/visual-quality';
 import { checkMicrocopy } from '../lint/microcopy';
 import { checkConversion } from '../lint/conversion';
 import { checkCognitive } from '../lint/cognitive';
+import { checkFittsLaw } from '../lint/fitts-law';
+import { checkGestalt } from '../lint/gestalt';
+import { checkDetachedInstances } from '../lint/detached-instance';
+import { checkResponsive } from '../lint/responsive';
 
 // ──────────────────────────────────────────────
 // Default lint settings
@@ -27,6 +31,10 @@ export const DEFAULT_LINT_SETTINGS: LintSettings = {
   checkMicrocopy: true,
   checkConversion: true,
   checkCognitive: true,
+  checkFittsLaw: true,
+  checkGestalt: true,
+  checkDetachedInstances: true,
+  checkResponsive: true,
   allowedRadii: [0, 2, 4, 8, 12, 16, 24, 32],
   skipLockedLayers: true,
   skipHiddenLayers: true,
@@ -568,6 +576,90 @@ export function runDesignLint(
     }
   }
 
+  // Run Fitts's Law checks (interactive target sizes)
+  if (settings.checkFittsLaw && severityOverrides.fittsLaw !== 'off') {
+    const fittsResult = checkFittsLaw(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+    for (const issue of fittsResult.issues) {
+      if (ignoredNodeIds.has(issue.nodeId)) continue;
+      if (ignoredErrorKeys.has(errorKey(issue.nodeId, 'fittsLaw'))) continue;
+      if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+
+      errors.push({
+        nodeId: issue.nodeId,
+        nodeName: issue.nodeName,
+        nodeType: 'FRAME',
+        errorType: 'fittsLaw',
+        message: issue.message,
+        value: issue.currentValue || '',
+        path: issue.nodeName,
+        severity: issue.severity,
+      });
+    }
+  }
+
+  // Run Gestalt principle checks (proximity, similarity)
+  if (settings.checkGestalt && severityOverrides.gestalt !== 'off') {
+    const gestaltResult = checkGestalt(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+    for (const issue of gestaltResult.issues) {
+      if (ignoredNodeIds.has(issue.nodeId)) continue;
+      if (ignoredErrorKeys.has(errorKey(issue.nodeId, 'gestalt'))) continue;
+      if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+
+      errors.push({
+        nodeId: issue.nodeId,
+        nodeName: issue.nodeName,
+        nodeType: 'FRAME',
+        errorType: 'gestalt',
+        message: issue.message,
+        value: issue.currentValue || '',
+        path: issue.nodeName,
+        severity: issue.severity,
+      });
+    }
+  }
+
+  // Run detached instance checks
+  if (settings.checkDetachedInstances && severityOverrides.detachedInstance !== 'off') {
+    const detachResult = checkDetachedInstances(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+    for (const issue of detachResult.issues) {
+      if (ignoredNodeIds.has(issue.nodeId)) continue;
+      if (ignoredErrorKeys.has(errorKey(issue.nodeId, 'detachedInstance'))) continue;
+      if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+
+      errors.push({
+        nodeId: issue.nodeId,
+        nodeName: issue.nodeName,
+        nodeType: 'FRAME',
+        errorType: 'detachedInstance',
+        message: issue.message,
+        value: issue.currentValue || '',
+        path: issue.nodeName,
+        severity: issue.severity,
+      });
+    }
+  }
+
+  // Run responsive design checks
+  if (settings.checkResponsive && severityOverrides.responsive !== 'off') {
+    const respResult = checkResponsive(nodes, { skipLocked: settings.skipLockedLayers, skipHidden: settings.skipHiddenLayers });
+    for (const issue of respResult.issues) {
+      if (ignoredNodeIds.has(issue.nodeId)) continue;
+      if (ignoredErrorKeys.has(errorKey(issue.nodeId, 'responsive'))) continue;
+      if (matchesIgnorePattern(issue.nodeName, ignorePatterns)) continue;
+
+      errors.push({
+        nodeId: issue.nodeId,
+        nodeName: issue.nodeName,
+        nodeType: 'FRAME',
+        errorType: 'responsive',
+        message: issue.message,
+        value: issue.currentValue || '',
+        path: issue.nodeName,
+        severity: issue.severity,
+      });
+    }
+  }
+
   // Filter out errors for rules set to 'off' via severity overrides
   const filteredErrors = errors.filter(err => severityOverrides[err.errorType] !== 'off');
 
@@ -604,6 +696,18 @@ export function runDesignLint(
         case 'cognitive':
           err.severity = 'info';
           break;
+        case 'responsive':
+          err.severity = 'warning';
+          break;
+        case 'fittsLaw':
+          err.severity = 'warning';
+          break;
+        case 'gestalt':
+          err.severity = 'info';
+          break;
+        case 'detachedInstance':
+          err.severity = 'warning';
+          break;
       }
     }
   }
@@ -612,7 +716,7 @@ export function runDesignLint(
   const nodesWithErrors = new Set(finalErrors.map(e => e.nodeId)).size;
 
   // Build summary
-  const byType: Record<LintErrorType, number> = { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0, conversion: 0, cognitive: 0 };
+  const byType: Record<LintErrorType, number> = { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0, conversion: 0, cognitive: 0, fittsLaw: 0, gestalt: 0, detachedInstance: 0, responsive: 0 };
   for (const err of finalErrors) {
     byType[err.errorType]++;
   }
@@ -642,7 +746,7 @@ export function lintSelection(settings?: LintSettings): LintResult {
       errors: [],
       ignoredNodeIds: [],
       ignoredErrorKeys: [],
-      summary: { totalErrors: 0, byType: { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0, conversion: 0, cognitive: 0 }, totalNodes: 0, nodesWithErrors: 0 },
+      summary: { totalErrors: 0, byType: { fill: 0, stroke: 0, effect: 0, text: 0, radius: 0, spacing: 0, autoLayout: 0, accessibility: 0, visualQuality: 0, microcopy: 0, conversion: 0, cognitive: 0, fittsLaw: 0, gestalt: 0, detachedInstance: 0, responsive: 0 }, totalNodes: 0, nodesWithErrors: 0 },
     };
   }
   return runDesignLint(selection, settings);

@@ -207,6 +207,56 @@ export async function checkHealth(): Promise<boolean> {
 }
 
 /**
+ * POST /api/analyze-page — whole-page sweep analysis.
+ */
+export async function analyzePageSweep(data: {
+  frames: Array<{
+    id: string;
+    name: string;
+    screenshot: string;
+    lintResult: { summary: unknown; errors: unknown[] };
+    width: number;
+    height: number;
+  }>;
+  sessionId?: string;
+}): Promise<{
+  fileHealth: {
+    overallScore: number;
+    grade: string;
+    totalFrames: number;
+    totalIssues: number;
+    topIssues: Array<{ type: string; count: number; severity: string }>;
+    consistencyScore: number;
+  };
+  frames: Array<{
+    id: string;
+    name: string;
+    score: number;
+    issueCount: number;
+    topIssues: string[];
+  }>;
+  aiInsights: {
+    strengths: string[];
+    weaknesses: string[];
+    recommendations: Array<{ title: string; description: string; affectedFrames: string[] }>;
+    summary: string;
+  };
+}> {
+  const resp = await fetch(`${backendUrl}/api/analyze-page`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || 'Page sweep analysis failed');
+  }
+
+  return resp.json();
+}
+
+/**
  * POST /api/analyze-flow — multi-frame AI flow analysis.
  */
 export async function analyzeFlow(data: {

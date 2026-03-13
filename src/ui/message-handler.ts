@@ -41,6 +41,12 @@ import { fixSpacingToNearest, fixAllSpacingOnNode } from '../fix/fix-spacing';
 import { fixRadiusToNearest } from '../fix/fix-radius';
 import { renameLayerById } from '../fix/rename-layer';
 import { executeBatchFix, type BatchFixAction } from '../fix/batch';
+import { collectVariableSystem } from '../extract/variable-collector';
+import { parseDTCG } from '../baseline/dtcg-parser';
+import { checkTokenCompliance } from '../baseline/token-compliance';
+import { compareModes } from '../extract/mode-comparator';
+import { enableRealtimeLint, disableRealtimeLint } from '../lint/realtime-lint';
+import { calculateDesignDebt } from '../baseline/design-debt';
 import {
   lintSelection,
   ignoreNode,
@@ -209,6 +215,9 @@ export async function handleUIMessage(msg: PluginMessage): Promise<void> {
       case 'analyze-flow':
         await handleAnalyzeFlow();
         break;
+      case 'analyze-page':
+        await handleAnalyzePage();
+        break;
       // Baseline & Diff handlers
       case 'save-baseline':
         handleSaveBaseline(data);
@@ -221,6 +230,28 @@ export async function handleUIMessage(msg: PluginMessage): Promise<void> {
         break;
       case 'delete-baseline':
         handleDeleteBaseline(data);
+        break;
+      // Variable system & DTCG compliance handlers
+      case 'collect-variables':
+        await handleCollectVariables();
+        break;
+      case 'check-dtcg-compliance':
+        await handleCheckDTCGCompliance(data);
+        break;
+      // Dark mode validation handler
+      case 'compare-modes':
+        await handleCompareModes(data);
+        break;
+      // Realtime lint handlers
+      case 'enable-realtime-lint':
+        handleEnableRealtimeLint(data);
+        break;
+      case 'disable-realtime-lint':
+        handleDisableRealtimeLint();
+        break;
+      // Design debt handler
+      case 'calculate-design-debt':
+        handleCalculateDesignDebt(data);
         break;
       default:
         console.warn('Unknown message type:', type);
@@ -1500,6 +1531,112 @@ async function handleAnalyzeFlow(): Promise<void> {
 }
 
 /**
+ * Whole-Page Sweep: iterate all top-level frames, lint + screenshot each,
+ * then post aggregated results back to the UI.
+ */
+async function handleAnalyzePage(): Promise<void> {
+  try {
+    const allChildren = figma.currentPage.children;
+
+    const frames = allChildren.filter(
+      (node): node is FrameNode | ComponentSetNode =>
+        node.type === 'FRAME' || node.type === 'COMPONENT_SET'
+    );
+
+    if (frames.length === 0) {
+      sendMessageToUI('analysis-error', { error: 'No top-level frames found on current page.' });
+      return;
+    }
+
+    const framesToAnalyze = frames.slice(0, 50);
+    const total = framesToAnalyze.length;
+
+    const { runDesignLint } = await import('../core/design-lint');
+
+    const frameResults: Array<{
+      id: string;
+      name: string;
+      screenshot: string;
+      lintResult: { summary: any; errors: any[] };
+      width: number;
+      height: number;
+    }> = [];
+
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const batch = framesToAnalyze.slice(i, i + BATCH_SIZE);
+      const promises = batch.map(async (frame, batchIdx) => {
+        const current = i + batchIdx + 1;
+
+        sendMessageToUI('page-sweep-progress', {
+          current,
+          total,
+          frameName: frame.name,
+        });
+
+        let lintResult: { summary: any; errors: any[] } = { summary: { totalErrors: 0, byType: {}, totalNodes: 0, nodesWithErrors: 0 }, errors: [] };
+        try {
+          lintResult = runDesignLint([frame as SceneNode], currentLintSettings);
+        } catch {
+          // Non-critical
+        }
+
+        let screenshot = '';
+        try {
+          screenshot = await exportScreenshot(frame as SceneNode, 800);
+        } catch {
+          // Non-critical
+        }
+
+        return {
+          id: frame.id,
+          name: frame.name,
+          screenshot,
+          lintResult: { summary: lintResult.summary, errors: lintResult.errors },
+          width: Math.round(frame.width),
+          height: Math.round(frame.height),
+        };
+      });
+
+      const batchResults = await Promise.all(promises);
+      frameResults.push(...batchResults);
+    }
+
+    let totalIssues = 0;
+    const issueTypeCounts: Record<string, { count: number; severity: string }> = {};
+
+    for (const fr of frameResults) {
+      totalIssues += fr.lintResult.summary.totalErrors || 0;
+      for (const err of fr.lintResult.errors) {
+        const key = err.errorType;
+        if (!issueTypeCounts[key]) {
+          issueTypeCounts[key] = { count: 0, severity: err.severity || 'warning' };
+        }
+        issueTypeCounts[key].count++;
+      }
+    }
+
+    const topIssues = Object.entries(issueTypeCounts)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 10)
+      .map(([type, { count, severity }]) => ({ type, count, severity }));
+
+    sendMessageToUI('page-sweep-result', {
+      frames: frameResults,
+      aggregated: {
+        totalFrames: total,
+        totalIssues,
+        topIssues,
+      },
+    });
+
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('analysis-error', { error: `Page sweep failed: ${msg}` });
+  }
+}
+
+/**
  * Initialize plugin with design systems knowledge
  */
 export async function initializePlugin(): Promise<void> {
@@ -2296,4 +2433,94 @@ async function handleAddComponentProperty(data: {
     });
     figma.notify(`Failed to add property: ${errorMessage}`, { error: true });
   }
+}
+
+// ──────────────────────────────────────────────
+// Variable System & DTCG Compliance Handlers
+// ──────────────────────────────────────────────
+
+async function handleCollectVariables(): Promise<void> {
+  try {
+    const report = await collectVariableSystem();
+    sendMessageToUI('variable-system-result', report);
+  } catch (error) {
+    console.error('Error collecting variables:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('variable-system-error', { error: errorMessage });
+  }
+}
+
+async function handleCheckDTCGCompliance(data: { dtcgJson: string }): Promise<void> {
+  try {
+    // Parse the DTCG JSON
+    const dtcgTokens = parseDTCG(data.dtcgJson);
+
+    // Collect the current variable system
+    const variableReport = await collectVariableSystem();
+
+    // Run compliance check
+    const result = checkTokenCompliance(variableReport, dtcgTokens, null);
+
+    sendMessageToUI('dtcg-compliance-result', result);
+  } catch (error) {
+    console.error('Error checking DTCG compliance:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('dtcg-compliance-error', { error: errorMessage });
+  }
+}
+
+// ──────────────────────────────────────────────
+// Dark Mode Validation Handler
+// ──────────────────────────────────────────────
+
+async function handleCompareModes(data: { collectionId: string }): Promise<void> {
+  try {
+    const modeData = await compareModes(data.collectionId);
+    sendMessageToUI('mode-comparison-result', modeData);
+  } catch (error) {
+    console.error('Error comparing modes:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendMessageToUI('mode-comparison-error', { error: errorMessage });
+  }
+}
+
+// ============================================================================
+// Realtime Lint Handlers
+// ============================================================================
+
+/**
+ * Enable real-time incremental linting via documentchange events.
+ */
+function handleEnableRealtimeLint(data: { debounceMs?: number; settings?: LintSettings }): void {
+  const settings = data.settings || DEFAULT_LINT_SETTINGS;
+  enableRealtimeLint({
+    enabled: true,
+    debounceMs: data.debounceMs || 500,
+    settings,
+  });
+}
+
+/**
+ * Disable real-time incremental linting.
+ */
+function handleDisableRealtimeLint(): void {
+  disableRealtimeLint();
+}
+
+// ============================================================================
+// Design Debt Handler
+// ============================================================================
+
+/**
+ * Calculate design debt score from lint results and token summary.
+ */
+function handleCalculateDesignDebt(data: {
+  lintResult: {
+    errors: Array<{ errorType: string; severity?: string; nodeId: string; nodeName: string; message: string; value: string; path: string; property?: string }>;
+    summary: { totalErrors: number; byType: Record<string, number>; totalNodes: number; nodesWithErrors: number };
+  };
+  tokenSummary?: { totalTokens: number; actualTokens: number; hardCodedValues: number; aiSuggestions: number };
+}): void {
+  const score = calculateDesignDebt(data.lintResult, data.tokenSummary || null);
+  sendMessageToUI('design-debt-result', score);
 }

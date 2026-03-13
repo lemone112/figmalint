@@ -3,8 +3,8 @@ import ChatContainer from './components/chat/ChatContainer';
 import SettingsPanel from './components/shared/SettingsPanel';
 import { useChat } from './hooks/useChat';
 import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
-import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData } from './lib/messages';
-import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow } from './lib/api';
+import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData, PageSweepData, PageSweepRawData } from './lib/messages';
+import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow, analyzePageSweep } from './lib/api';
 
 export default function App() {
   const chat = useChat();
@@ -240,6 +240,40 @@ export default function App() {
               chat.handleDiffResult(diffData);
             } else {
               chat.addMessage({ kind: 'ai-text', content: 'No baseline found for this component. Save a baseline first.' });
+            }
+            break;
+          }
+          case 'page-sweep-progress': {
+            const prog = event.data as { current: number; total: number; frameName: string };
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Sweeping page: ${prog.current}/${prog.total} - "${prog.frameName}"...`,
+            });
+            break;
+          }
+          case 'page-sweep-result': {
+            const sweepData = event.data as PageSweepRawData;
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Page sweep complete: ${sweepData.frames.length} frames analyzed. ${backendAvailable ? 'Running AI analysis...' : 'Backend unavailable, showing deterministic results.'}`,
+            });
+
+            if (backendAvailable) {
+              analyzePageSweep({
+                frames: sweepData.frames,
+              }).then((result) => {
+                chat.addMessage({ kind: 'page-sweep-result', data: result as PageSweepData });
+              }).catch((err) => {
+                chat.addMessage({
+                  kind: 'ai-text',
+                  content: `AI page analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}. Showing deterministic results.`,
+                });
+                const deterministicResult = buildDeterministicSweepResult(sweepData);
+                chat.addMessage({ kind: 'page-sweep-result', data: deterministicResult });
+              });
+            } else {
+              const deterministicResult = buildDeterministicSweepResult(sweepData);
+              chat.addMessage({ kind: 'page-sweep-result', data: deterministicResult });
             }
             break;
           }
@@ -557,6 +591,12 @@ export default function App() {
           break;
         }
 
+        case 'analyze-page': {
+          chat.addMessage({ kind: 'ai-text', content: 'Starting whole-page sweep...' });
+          post('analyze-page');
+          break;
+        }
+
         case 'toggle-mode': {
           const next = analysisMode === 'quick' ? 'deep' : 'quick';
           setAnalysisMode(next);
@@ -610,6 +650,13 @@ export default function App() {
             onClick={() => handleAction('analyze-flow')}
           >
             Analyze Flow
+          </button>
+          <button
+            className="flex-1 py-2 bg-bg-secondary text-fg text-12 font-medium rounded-md hover:bg-bg-hover transition-colors border border-border"
+            onClick={() => handleAction('analyze-page')}
+            title="Sweep all top-level frames on the page"
+          >
+            Sweep Page
           </button>
           <button
             onClick={() => setShowSettings(true)}
@@ -746,4 +793,68 @@ function buildFullReport(
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Build a deterministic PageSweepData from plugin-side sweep results (no AI).
+ */
+function buildDeterministicSweepResult(sweepData: PageSweepRawData): PageSweepData {
+  const SEVERITY_WEIGHT: Record<string, number> = { critical: 10, warning: 3, info: 1 };
+
+  const frameResults = sweepData.frames.map((frame) => {
+    const errors = frame.lintResult.errors;
+    const total = Math.max(frame.lintResult.summary.totalNodes, 1);
+    const weightedFailed = errors.reduce((sum, e) => sum + (SEVERITY_WEIGHT[e.severity || 'warning'] || 3), 0);
+    const weightedPassed = Math.max(0, total - errors.length) * 10;
+    const t = weightedPassed + weightedFailed;
+    const score = t > 0 ? Math.round((weightedPassed / t) * 100) : 100;
+
+    const typeCounts: Record<string, number> = {};
+    for (const err of errors) {
+      typeCounts[err.errorType] = (typeCounts[err.errorType] || 0) + 1;
+    }
+    const topIssues = Object.entries(typeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([type, count]) => `${type} (${count})`);
+
+    return {
+      id: frame.id,
+      name: frame.name,
+      score,
+      issueCount: frame.lintResult.summary.totalErrors,
+      topIssues,
+    };
+  });
+
+  const scores = frameResults.map((f) => f.score);
+  const overallScore = scores.length > 0
+    ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+    : 100;
+
+  const mean = overallScore;
+  const variance = scores.length > 0
+    ? scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length
+    : 0;
+  const consistencyScore = Math.max(0, Math.round(100 - Math.sqrt(variance)));
+
+  const grade = overallScore >= 90 ? 'excellent' : overallScore >= 70 ? 'needs-work' : 'poor';
+
+  return {
+    fileHealth: {
+      overallScore,
+      grade,
+      totalFrames: sweepData.aggregated.totalFrames,
+      totalIssues: sweepData.aggregated.totalIssues,
+      topIssues: sweepData.aggregated.topIssues,
+      consistencyScore,
+    },
+    frames: frameResults,
+    aiInsights: {
+      strengths: [],
+      weaknesses: [],
+      recommendations: [],
+      summary: 'AI analysis unavailable. Scores are based on deterministic lint rules only.',
+    },
+  };
 }

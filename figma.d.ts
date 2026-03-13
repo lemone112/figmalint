@@ -30,10 +30,47 @@ declare global {
     getStyleById: (id: string) => { name: string } | null;
     variables: {
       getVariableById: (id: string) => { name: string } | null;
+      getVariableByIdAsync: (id: string) => Promise<Variable | null>;
+      getLocalVariableCollectionsAsync: () => Promise<VariableCollection[]>;
     };
+    root: {
+      setSharedPluginData(namespace: string, key: string, value: string): void;
+      getSharedPluginData(namespace: string, key: string): string;
+    };
+    mixed: symbol;
     editorType?: string;
     mode?: string;
   };
+
+  // Variable system types
+  interface Variable {
+    id: string;
+    name: string;
+    resolvedType: 'COLOR' | 'FLOAT' | 'STRING' | 'BOOLEAN';
+    description: string;
+    valuesByMode: Record<string, VariableValue>;
+    scopes: string[];
+  }
+
+  type VariableValue = boolean | string | number | RGB | RGBA | VariableAlias;
+
+  interface VariableAlias {
+    type: 'VARIABLE_ALIAS';
+    id: string;
+  }
+
+  interface VariableCollection {
+    id: string;
+    name: string;
+    modes: Array<{ modeId: string; name: string }>;
+    variableIds: string[];
+  }
+
+  // Font name type
+  interface FontName {
+    family: string;
+    style: string;
+  }
 
   const __html__: string;
 
@@ -110,6 +147,7 @@ declare global {
     cornerRadius?: number;
     children?: SceneNode[];
     parent: BaseNode | null;
+    boundVariables?: Record<string, { id: string } | Array<{ id: string }>>;
     resize(width: number, height: number): void;
   }
 
