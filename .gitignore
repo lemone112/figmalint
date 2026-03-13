@@ -42,11 +42,8 @@ pids
 *-backup.*
 *-old.*
 
-# Test files and development scripts
-src/__tests__/
+# Development scripts
 scripts/test-*.js
-*.test.ts
-*.test.js
 
 # Local configuration
 .claude/

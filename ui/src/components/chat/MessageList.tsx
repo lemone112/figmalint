@@ -213,7 +213,7 @@ function AnalysisPhaseIndicator({ phase, done }: { phase: AnalysisPhase; done?: 
             {isPending && (
               <div className="w-3 h-3 rounded-full bg-bg-tertiary shrink-0" />
             )}
-            <span className={isActive ? 'text-fg font-medium' : isComplete ? 'text-fg-secondary' : 'text-fg-tertiary'}>
+            <span className={isActive ? 'text-fg font-medium animate-pulse' : isComplete ? 'text-fg-secondary' : 'text-fg-tertiary'}>
               {PHASE_LABELS[p]}{isActive ? '...' : ''}
             </span>
           </div>

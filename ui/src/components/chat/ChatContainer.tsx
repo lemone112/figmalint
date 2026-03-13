@@ -11,6 +11,7 @@ interface ChatContainerProps {
   componentName?: string;
   analysisMode?: 'quick' | 'deep';
   miniScore?: MiniScoreData | null;
+  isActionLoading?: boolean;
   onAnalyze: () => void;
   onSendMessage: (text: string) => void;
   onAction: (action: string, params?: Record<string, unknown>) => void;
@@ -23,6 +24,7 @@ export default function ChatContainer({
   componentName,
   analysisMode,
   miniScore,
+  isActionLoading,
   onAnalyze,
   onSendMessage,
   onAction,
@@ -78,6 +80,7 @@ export default function ChatContainer({
             hasFixable={(lintResult?.errors.filter(e => e.errorType === 'spacing' || e.errorType === 'radius').length || 0) > 0}
             analysisMode={analysisMode}
             hasBaseline={!!baselineMeta}
+            isLoading={isActionLoading}
             onAction={handleAction}
           />
         )}

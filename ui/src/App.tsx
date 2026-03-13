@@ -5,7 +5,7 @@ import TeamConfigPanel from './components/shared/TeamConfigPanel';
 import { useChat } from './hooks/useChat';
 import { usePluginMessages, usePostToPlugin } from './hooks/usePluginMessages';
 import type { PluginEvent, LintResult, LintError, AiReviewData, ReferoComparisonData, FlowAnalysisData, DiffResultData, PageSweepData, PageSweepRawData, MiniScoreData } from './lib/messages';
-import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow, analyzePageSweep } from './lib/api';
+import { analyzeComponent, streamChat, checkHealth, setBackendUrl, fetchReferoData, analyzeFlow, analyzePageSweep, analyzeBrandConsistency, analyzeCopyTone, analyzePersonaResearch, generateA11ySpec } from './lib/api';
 
 export default function App() {
   const chat = useChat();
@@ -20,12 +20,14 @@ export default function App() {
   const [selectionStale, setSelectionStale] = useState(false);
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null);
   const [miniScore, setMiniScore] = useState<MiniScoreData | null>(null);
+  const [isActionLoading, setIsActionLoading] = useState(false);
   const analyzedNodeId = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const walkthroughIndex = useRef(0);
   const referoPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingLintResult = useRef<LintResult | null>(null);
   const pendingScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number } | null>(null);
+  const lastScreenshot = useRef<{ screenshot: string; nodeId: string; nodeName: string; width: number; height: number } | null>(null);
   const pageSweepRequestId = useRef(0);
 
   // Try to send lint + screenshot to backend for AI analysis
@@ -161,6 +163,7 @@ export default function App() {
           case 'screenshot-result': {
             const ssData = event.data as { nodeId: string; nodeName: string; screenshot: string; width: number; height: number; hasAutoLayout?: boolean; childCount?: number };
             pendingScreenshot.current = ssData;
+            lastScreenshot.current = ssData;
             analyzedNodeId.current = ssData.nodeId;
             // Check for existing baseline for this node
             post('load-baseline', { nodeId: ssData.nodeId });
@@ -752,9 +755,148 @@ export default function App() {
           post('collect-variables');
           break;
         }
+
+        case 'brand-audit': {
+          if (!backendAvailable) {
+            chat.addMessage({ kind: 'ai-text', content: 'Backend unavailable. Brand audit requires the AI backend.' });
+            break;
+          }
+          if (!lastScreenshot.current) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Running brand consistency analysis...' });
+          setIsActionLoading(true);
+          const brandSs = lastScreenshot.current;
+          analyzeBrandConsistency({
+            screenshot: brandSs.screenshot,
+            brandGuide: {
+              colors: {},
+              typography: {
+                heading: { family: '', weights: [] },
+                body: { family: '', weights: [] },
+              },
+              spacing: { base: 8, scale: [4, 8, 12, 16, 24, 32, 48, 64] },
+              personality: [],
+            },
+            lintResult: chat.lintResult ?? undefined,
+            sessionId: chat.sessionId || undefined,
+          }).then((result) => {
+            chat.addMessage({ kind: 'brand-consistency', data: result.brandConsistency });
+          }).catch((err) => {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Brand audit failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            });
+          }).finally(() => setIsActionLoading(false));
+          break;
+        }
+
+        case 'copy-tone': {
+          if (!backendAvailable) {
+            chat.addMessage({ kind: 'ai-text', content: 'Backend unavailable. Copy/tone analysis requires the AI backend.' });
+            break;
+          }
+          if (!lastScreenshot.current) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Running copy & tone analysis...' });
+          setIsActionLoading(true);
+          analyzeCopyTone({
+            screens: [{ name: componentName || lastScreenshot.current.nodeName || 'Current Screen', textContent: [] }],
+            sessionId: chat.sessionId || undefined,
+          }).then((result) => {
+            chat.addMessage({ kind: 'copy-tone', data: result.copyTone });
+          }).catch((err) => {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Copy/tone analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            });
+          }).finally(() => setIsActionLoading(false));
+          break;
+        }
+
+        case 'persona-sim': {
+          if (!backendAvailable) {
+            chat.addMessage({ kind: 'ai-text', content: 'Backend unavailable. Persona simulation requires the AI backend.' });
+            break;
+          }
+          if (!lastScreenshot.current) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Running persona-based usability simulation...' });
+          setIsActionLoading(true);
+          analyzePersonaResearch({
+            screenshot: lastScreenshot.current.screenshot,
+            taskDescription: 'General usability review',
+            sessionId: chat.sessionId || undefined,
+          }).then((result) => {
+            chat.addMessage({ kind: 'persona-research', data: result.personaResearch });
+          }).catch((err) => {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `Persona simulation failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            });
+          }).finally(() => setIsActionLoading(false));
+          break;
+        }
+
+        case 'a11y-spec': {
+          if (!backendAvailable) {
+            chat.addMessage({ kind: 'ai-text', content: 'Backend unavailable. A11y spec generation requires the AI backend.' });
+            break;
+          }
+          if (!lastScreenshot.current) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to capture a screenshot.' });
+            break;
+          }
+          if (!chat.lintResult) {
+            chat.addMessage({ kind: 'ai-text', content: 'Run an analysis first to generate lint results.' });
+            break;
+          }
+          chat.addMessage({ kind: 'ai-text', content: 'Generating accessibility specification...' });
+          setIsActionLoading(true);
+          const a11ySs = lastScreenshot.current;
+          const a11yLint = chat.lintResult;
+          generateA11ySpec({
+            screenshot: a11ySs.screenshot,
+            extractedData: {
+              componentName: componentName || a11ySs.nodeName || 'Component',
+              metadata: {
+                nodeId: a11ySs.nodeId,
+                nodeType: 'FRAME',
+                width: a11ySs.width,
+                height: a11ySs.height,
+                hasAutoLayout: false,
+                childCount: 0,
+              },
+            },
+            lintResult: {
+              summary: a11yLint.summary,
+              errors: a11yLint.errors.map((e) => ({
+                nodeId: e.nodeId,
+                nodeName: e.nodeName,
+                errorType: e.errorType,
+                message: e.message,
+                value: (e as any).value ?? '',
+              })),
+            },
+            sessionId: chat.sessionId || undefined,
+          }).then((result) => {
+            chat.addMessage({ kind: 'a11y-spec', data: result.spec });
+          }).catch((err) => {
+            chat.addMessage({
+              kind: 'ai-text',
+              content: `A11y spec generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            });
+          }).finally(() => setIsActionLoading(false));
+          break;
+        }
       }
     },
-    [chat, post, componentName, analysisMode]
+    [chat, post, componentName, analysisMode, backendAvailable]
   );
 
   const handleJumpToNode = useCallback(
@@ -857,6 +999,7 @@ export default function App() {
         componentName={componentName}
         analysisMode={analysisMode}
         miniScore={miniScore}
+        isActionLoading={isActionLoading}
         onAnalyze={handleAnalyze}
         onSendMessage={handleSendMessage}
         onAction={handleAction}

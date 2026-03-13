@@ -42,6 +42,8 @@ function CategoryRow({ label, category, extra }: { label: string; category: AiRe
 }
 
 export default function AiReviewCard({ data }: AiReviewCardProps) {
+  if (!data || !data.visualHierarchy || !data.statesCoverage || !data.colorHarmony) return null;
+
   const missingStates = data.statesCoverage?.missingStates || [];
 
   return (
